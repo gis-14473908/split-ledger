@@ -173,3 +173,12 @@ select set_config('request.jwt.claim.sub', '', false);
 select tests.expect_error($q$select public.ai_rate_check('statement', 'sonnet')$q$, 'not_authenticated');
 
 reset role;
+
+-- The anon role cannot call the privileged functions at all.
+grant usage on schema tests to anon;
+grant execute on all functions in schema tests to anon;
+set role anon;
+select tests.expect_error($q$select public.accept_invite('x')$q$, 'permission denied');
+select tests.expect_error($q$select public.set_transaction_split('11111111-0000-4000-8000-000000000001', '[]')$q$, 'permission denied');
+select tests.expect_error($q$select * from public.shares_owed_by_me()$q$, 'permission denied');
+reset role;

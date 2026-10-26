@@ -30,5 +30,6 @@ run() {
 run "$ROOT/supabase/tests/auth_stub.sql"
 run "$ROOT/supabase/migrations/0001_schema.sql"
 run "$ROOT/supabase/migrations/0002_functions.sql"
+run "$ROOT/supabase/migrations/0004_hardening.sql"
 run "$ROOT/supabase/tests/db.test.sql"
 echo "db tests passed"
