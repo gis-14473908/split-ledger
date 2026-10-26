@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PENDING_CHANGED } from "@/components/BottomNav";
 import { HandStrip } from "@/components/review/HandStrip";
+import { ReceiptAssigner } from "@/components/review/ReceiptAssigner";
 import { SplitSheet } from "@/components/review/SplitSheet";
 import { SwipeDeck, type SwipeAction } from "@/components/review/SwipeDeck";
 import type { Category } from "@/lib/categories";
@@ -28,6 +29,7 @@ export default function ReviewPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [q, setQ] = useState<QueueState>(initQueue([]));
   const [sharing, setSharing] = useState<ReviewItem | null>(null);
+  const [receiptFor, setReceiptFor] = useState<{ item: ReviewItem; people: { includeMe: boolean; contactIds: string[] } } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -82,6 +84,13 @@ export default function ReviewPage() {
     await saveShares(sb, sharing.id, shares);
     record(sharing.id, "shared", "已分账");
     setSharing(null);
+  }
+
+  async function onReceiptDone(shares: Share[]) {
+    if (!receiptFor) return;
+    await saveShares(sb, receiptFor.item.id, shares);
+    record(receiptFor.item.id, "shared", "已按小票分账");
+    setReceiptFor(null);
   }
 
   async function onUndo() {
@@ -182,7 +191,20 @@ export default function ReviewPage() {
           onCreateContact={onCreateContact}
           onCancel={() => setSharing(null)}
           onEqual={onEqual}
-          onReceipt={() => setToast("按小票分账马上就来")}
+          onReceipt={(people) => {
+            setReceiptFor({ item: sharing, people });
+            setSharing(null);
+          }}
+        />
+      )}
+
+      {receiptFor && (
+        <ReceiptAssigner
+          target={{ id: receiptFor.item.id, merchant: receiptFor.item.merchant, amountPence: receiptFor.item.amount_pence }}
+          people={receiptFor.people}
+          contacts={contacts}
+          onCancel={() => setReceiptFor(null)}
+          onDone={onReceiptDone}
         />
       )}
     </main>
