@@ -25,7 +25,7 @@ export async function existingDedupeKeys(sb: SupabaseClient, keys: string[]): Pr
 export async function saveImport(
   sb: SupabaseClient,
   rows: ImportedTransaction[],
-  meta: { kind: "screenshot"; filePaths: string[]; model: ModelKey },
+  meta: { kind: "screenshot" | "csv"; filePaths: string[]; model: ModelKey },
 ): Promise<number> {
   const { data: imp, error: impError } = await sb
     .from("imports")
@@ -47,7 +47,7 @@ export async function saveImport(
       original_currency: r.originalCurrency,
       category: r.category ?? "other",
       bank: r.bank,
-      source: "screenshot",
+      source: meta.kind,
       status: r.status,
       ai_hint: r.hint,
       dedupe_key: dedupeKey(r),

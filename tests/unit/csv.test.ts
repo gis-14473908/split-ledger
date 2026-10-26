@@ -6,15 +6,15 @@ it("reports an empty file", () => {
   expect(parseCsv("")).toEqual({ ok: false, error: "empty" });
 });
 
-it("reports unsupported formats while no parser is registered", () => {
+it("reports formats no parser recognises", () => {
   expect(parseCsv("Date,Amount\n2026-10-01,1.00")).toEqual({ ok: false, error: "unsupported" });
 });
 
-it("hands rows to the first parser that recognises the headers", () => {
+it("hands the raw rows to the first parser that recognises them", () => {
   const fake: CsvParser = {
     bank: "monzo",
-    detect: (h) => h.includes("Emoji"),
-    parse: (rows) => rows.map((r) => tx({ merchantRaw: r.Name })),
+    detect: (rows) => rows[0].includes("Emoji"),
+    parse: (rows) => rows.slice(1).map((r) => tx({ merchantRaw: r[0] })),
   };
   const r = parseCsv("Name,Emoji\nPret,x", [fake]);
   expect(r.ok && r.bank).toBe("monzo");

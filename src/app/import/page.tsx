@@ -8,13 +8,27 @@ import type { ImportedTransaction } from "@/lib/ai/schemas";
 import { CSV_UNSUPPORTED_MESSAGE, parseCsv } from "@/lib/csv/registry";
 import { existingDedupeKeys, saveImport, uploadImage } from "@/lib/data/import";
 import { dedupeKey } from "@/lib/dedupe";
+import { fillCategories } from "@/lib/import/categorize";
 import { mergePreview, type PreviewRow } from "@/lib/import/preview";
+import { BANK_LABEL } from "@/lib/banks";
+import type { Category } from "@/lib/categories";
 import { compressImage, ImageDecodeError } from "@/lib/image/compress";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
 type FileJob = { id: string; name: string; status: "waiting" | "working" | "done" | "error"; error?: string; path?: string; file: File };
 
 const NOTHING_FOUND = "没识别出交易，换一张更清楚的截图，或用 Opus 5.5 重试";
+
+async function categorizeViaApi(items: { merchant: string; amountPence: number }[]): Promise<Category[]> {
+  const res = await fetch("/api/ai/categorize", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body) throw new Error(body?.error ?? "分类失败");
+  return body.categories;
+}
 
 async function recognise(path: string, model?: ModelKey) {
   const res = await fetch("/api/ai/statement", {
@@ -36,6 +50,7 @@ export default function ImportPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
+  const [fromCsv, setFromCsv] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
   const csvInput = useRef<HTMLInputElement>(null);
 
@@ -105,14 +120,26 @@ export default function ImportPage() {
       setMessage(result.error === "empty" ? "这个文件是空的" : CSV_UNSUPPORTED_MESSAGE);
       return;
     }
-    const txs = result.transactions.map((t) => ({
-      ...t,
-      status: t.isTransfer || t.amountPence < 0 ? ("transfer" as const) : ("pending" as const),
-    }));
+    setBusy(true);
+    setSaved(null);
     try {
+      // CSV rows carry no category: one AI call for all of them (merchant names and amounts only).
+      const { rows: categorised, failed } = await fillCategories(result.transactions, categorizeViaApi);
+      const txs = categorised.map((t) => ({
+        ...t,
+        status: t.isTransfer || t.amountPence < 0 ? ("transfer" as const) : ("pending" as const),
+      }));
+      setFromCsv(true);
       await addToPreview(txs);
+      setMessage(
+        failed
+          ? `已读取 ${BANK_LABEL[result.bank]} 的 ${txs.length} 笔交易，但自动分类失败了，先都标成“其他”，可以在下面手动改`
+          : null,
+      );
     } catch (e) {
       setMessage(`出错了：${(e as Error).message}，请重试`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -122,13 +149,14 @@ export default function ImportPage() {
     setBusy(true);
     try {
       const n = await saveImport(sb, chosen, {
-        kind: "screenshot",
+        kind: fromCsv && !jobs.some((j) => j.path) ? "csv" : "screenshot",
         filePaths: jobs.flatMap((j) => (j.path ? [j.path] : [])),
         model,
       });
       setSaved(n);
       setRows(null);
       setJobs([]);
+      setFromCsv(false);
     } catch (e) {
       setMessage(`保存失败：${(e as Error).message}`);
     } finally {
@@ -158,7 +186,7 @@ export default function ImportPage() {
         </button>
         <button className="card flex flex-col items-start gap-1 p-4 text-left" onClick={() => csvInput.current?.click()} disabled={busy}>
           <span className="font-bold">上传 CSV</span>
-          <span className="text-xs text-muted">银行导出的账单文件</span>
+          <span className="text-xs text-muted">目前支持 HSBC 导出的 CSV</span>
         </button>
         <input ref={imageInput} id="pick-images" type="file" accept="image/*" multiple hidden onChange={(e) => { onPickImages(e.target.files); e.target.value = ""; }} />
         <input ref={csvInput} id="pick-csv" type="file" accept=".csv,text/csv" hidden onChange={(e) => { onPickCsv(e.target.files); e.target.value = ""; }} />

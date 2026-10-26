@@ -37,9 +37,9 @@ Migrations live in `supabase/migrations` and are applied in order (0001 → 0006
 
 ## Adding a bank's CSV format
 
-CSV import is wired up but no bank parser is registered yet. To add one:
+Supported: **HSBC UK** (Online Banking → account → Search and filter → Download → CSV; no header row). To add another bank:
 
 1. Export a CSV from the bank and redact names, card numbers and amounts you don't want to share.
 2. Save it as `tests/fixtures/<bank>.csv` and write a test that parses it.
-3. Implement a `CsvParser` in `src/lib/csv/<bank>.ts` (`detect` from the header row, `parse` into `ParsedTransaction`, positive amounts for spending).
+3. Implement a `CsvParser` in `src/lib/csv/<bank>.ts` (`detect` and `parse` receive raw rows of cells; return `ParsedTransaction`s with positive amounts for spending and `category: null` so the importer asks the AI to categorise).
 4. Add it to `CSV_PARSERS` in `src/lib/csv/registry.ts`.

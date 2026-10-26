@@ -41,3 +41,11 @@ it("looks up which dedupe keys already exist", async () => {
   const sb = recordingSupabase({ transactions: { data: [{ dedupe_key: "k1" }], error: null } });
   expect(await existingDedupeKeys(sb as never, ["k1", "k2"])).toEqual(new Set(["k1"]));
 });
+
+it("records CSV imports with source csv", async () => {
+  const sb = recordingSupabase({ "imports.single": { data: { id: "imp-2" }, error: null } });
+  await saveImport(sb as never, [{ ...tx(), status: "pending" as const }], { kind: "csv", filePaths: [], model: "sonnet" });
+  const inserts = sb.calls.filter((c) => c.op === "insert");
+  expect(inserts[0].args[0]).toMatchObject({ kind: "csv" });
+  expect((inserts[1].args[0] as Record<string, unknown>[])[0]).toMatchObject({ source: "csv" });
+});
