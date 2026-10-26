@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AddContactForm } from "@/components/contacts/AddContactForm";
 import { MODEL_KEYS, MODEL_LABEL } from "@/lib/ai/models";
 import type { Contact, ModelKey, Profile } from "@/lib/db/types";
 import { loadProfile, updateSettings } from "@/lib/data/settings";
@@ -20,6 +21,7 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,9 +95,17 @@ export default function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm tracking-widest text-muted">联系人</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm tracking-widest text-muted">联系人</h2>
+          <button className="text-sm text-accent" onClick={() => setAdding((v) => !v)}>{adding ? "收起" : "+ 添加联系人"}</button>
+        </div>
+        {adding && (
+          <div className="card p-4">
+            <AddContactForm onAdded={(c) => setContacts((list) => [...list, c])} />
+          </div>
+        )}
         {contacts.length === 0 ? (
-          <p className="card p-4 text-sm text-muted">分账时添加的同学会出现在这里。</p>
+          <p className="card p-4 text-sm text-muted">还没有联系人。可以在这里添加，分账时也能随手写名字。</p>
         ) : (
           <ul className="card divide-y divide-line">
             {contacts.map((c) => (

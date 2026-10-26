@@ -32,3 +32,17 @@ it("includes payments the other person recorded, from my point of view", () => {
   expect(ledger.entries[0]).toEqual({ date: "2026-10-22", title: "你转给对方", detail: "对方记录", pence: 500, kind: "settlement" });
   expect(ledger.balance).toBe(1500);
 });
+
+it("labels opening balances from either side", () => {
+  const ledger = buildContactLedger(
+    [],
+    [],
+    [{ id: "s1", amount_pence: -3000, settled_on: "2026-10-01", note: null, kind: "opening" }],
+    [{ amount_pence: -500, settled_on: "2026-10-02", note: null, kind: "opening" }],
+  );
+  expect(ledger.entries).toEqual([
+    { date: "2026-10-02", title: "起始欠款：你欠 TA", detail: "对方记录", pence: -500, kind: "settlement" },
+    { date: "2026-10-01", title: "起始欠款：TA 欠你", detail: null, pence: 3000, kind: "settlement" },
+  ]);
+  expect(ledger.balance).toBe(2500);
+});

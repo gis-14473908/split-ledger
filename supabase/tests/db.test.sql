@@ -248,3 +248,21 @@ do $$ begin
   assert (select count(*) from public.contacts) = 1, 'no duplicate contact created';
 end $$;
 reset role;
+
+-- Opening balances (0006) --------------------------------------------------------
+set role authenticated;
+select tests.as_user('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+-- "李明 already owed me £30 before I started": stored like a settlement of -3000.
+insert into public.settlements (contact_id, amount_pence, kind) values ('a1a1a1a1-0000-4000-8000-000000000002', -3000, 'opening');
+select tests.expect_error($q$insert into public.settlements (contact_id, amount_pence, kind) values ('a1a1a1a1-0000-4000-8000-000000000002', 100, 'gift')$q$, 'check');
+do $$ begin
+  assert (select pence from public.contact_balances() where contact_id = 'a1a1a1a1-0000-4000-8000-000000000002') = 3333,
+    'opening balance adds to what 李明 owes';
+end $$;
+-- A's opening balance with B ("B owes me £5") shows up for B with its kind.
+insert into public.settlements (contact_id, amount_pence, kind) values ('a1a1a1a1-0000-4000-8000-000000000001', -500, 'opening');
+select tests.as_user('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+do $$ begin
+  assert (select kind from public.counterpart_settlements() where amount_pence = -500) = 'opening', 'counterpart sees the kind';
+end $$;
+reset role;

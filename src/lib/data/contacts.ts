@@ -13,9 +13,12 @@ export type LedgerEntry = {
 
 type MySplit = { share_pence: number; transactions: { occurred_on: string; merchant: string; amount_pence: number } };
 type TheirShare = Pick<OwedShare, "occurred_on" | "merchant" | "amount_pence" | "share_pence">;
-type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null };
+type SettlementKind = "payment" | "opening";
+type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
 /** A settlement the other person recorded; positive means I paid them. */
-type TheirSettlement = { amount_pence: number; settled_on: string; note: string | null };
+type TheirSettlement = { amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
+
+const openingTitle = (pence: number) => (pence > 0 ? "起始欠款：TA 欠你" : "起始欠款：你欠 TA");
 
 export function buildContactLedger(
   mine: MySplit[],
@@ -40,14 +43,14 @@ export function buildContactLedger(
     })),
     ...settlements.map((s) => ({
       date: s.settled_on,
-      title: s.amount_pence > 0 ? "对方转给你" : "你转给对方",
+      title: s.kind === "opening" ? openingTitle(-s.amount_pence) : s.amount_pence > 0 ? "对方转给你" : "你转给对方",
       detail: s.note,
       pence: -s.amount_pence,
       kind: "settlement" as const,
     })),
     ...theirSettlements.map((s) => ({
       date: s.settled_on,
-      title: s.amount_pence > 0 ? "你转给对方" : "对方转给你",
+      title: s.kind === "opening" ? openingTitle(s.amount_pence) : s.amount_pence > 0 ? "你转给对方" : "对方转给你",
       detail: s.note ? `对方记录 · ${s.note}` : "对方记录",
       pence: s.amount_pence,
       kind: "settlement" as const,
@@ -69,7 +72,7 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
       .eq("contact_id", contactId)
       .eq("transactions.status", "shared"),
     c.linked_user_id ? sb.rpc("shares_owed_by_me") : none,
-    sb.from("settlements").select("id, amount_pence, settled_on, note").eq("contact_id", contactId),
+    sb.from("settlements").select("id, amount_pence, settled_on, note, kind").eq("contact_id", contactId),
     c.linked_user_id ? sb.rpc("counterpart_settlements") : none,
   ]);
   for (const r of [mineRes, theirsRes, settlementsRes, theirSettlementsRes]) if (r.error) throw new Error(r.error.message);
@@ -90,4 +93,23 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
 export async function settle(sb: SupabaseClient, contactId: string, amountPence: number, note?: string) {
   const { error } = await sb.from("settlements").insert({ contact_id: contactId, amount_pence: amountPence, note: note || null });
   if (error) throw new Error(error.message);
+}
+
+export type OpeningBalance = { direction: "theyOwe" | "iOwe"; pence: number };
+
+/** Create a contact, optionally with a debt that predates the app. */
+export async function addContact(sb: SupabaseClient, name: string, opening?: OpeningBalance): Promise<Contact> {
+  const { data, error } = await sb.from("contacts").insert({ name: name.trim() }).select("*").single();
+  if (error || !data) throw new Error(error?.message ?? "添加联系人失败");
+  const contact = data as Contact;
+  if (opening && opening.pence > 0) {
+    const { error: e2 } = await sb.from("settlements").insert({
+      contact_id: contact.id,
+      // Same sign rule as payments: negative means they owe me.
+      amount_pence: opening.direction === "theyOwe" ? -opening.pence : opening.pence,
+      kind: "opening",
+    });
+    if (e2) throw new Error(`联系人已添加，但起始欠款没保存：${e2.message}`);
+  }
+  return contact;
 }
