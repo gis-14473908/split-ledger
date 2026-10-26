@@ -92,9 +92,11 @@ export async function loadReviewData(sb: SupabaseClient): Promise<{ items: Revie
 }
 
 async function setStatus(sb: SupabaseClient, txId: string, status: "personal" | "later") {
-  const { error } = await sb.from("transactions").update({ status }).eq("id", txId);
-  if (error) throw new Error(error.message);
+  const { error } = await sb.rpc("set_transaction_status", { p_tx: txId, p_status: status });
+  if (error) throw new Error(error.message.includes("stale") ? STALE_MESSAGE : error.message);
 }
+
+export const STALE_MESSAGE = "这笔已经在别处处理过了，刷新一下";
 
 export const savePersonal = (sb: SupabaseClient, txId: string) => setStatus(sb, txId, "personal");
 export const saveLater = (sb: SupabaseClient, txId: string) => setStatus(sb, txId, "later");
@@ -104,7 +106,7 @@ export async function saveShares(sb: SupabaseClient, txId: string, shares: Share
     p_tx: txId,
     p_shares: shares.map((s) => ({ contact_id: s.contactId, share_pence: s.sharePence })),
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(error.message.includes("stale") ? STALE_MESSAGE : error.message);
 }
 
 export async function resetTx(sb: SupabaseClient, txId: string) {

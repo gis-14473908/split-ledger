@@ -20,3 +20,15 @@ it("labels a payment I made to them", () => {
   expect(ledger.entries[0]).toMatchObject({ title: "你转给对方", detail: "现金", pence: 400 });
   expect(ledger.balance).toBe(400);
 });
+
+it("includes payments the other person recorded, from my point of view", () => {
+  // They recorded +500: "the contact (me) paid me (them) £5" → I paid them, so they owe me £5 more.
+  const ledger = buildContactLedger(
+    [{ share_pence: 1000, transactions: { occurred_on: "2026-10-20", merchant: "Tesco", amount_pence: 2000 } }],
+    [],
+    [],
+    [{ amount_pence: 500, settled_on: "2026-10-22", note: null }],
+  );
+  expect(ledger.entries[0]).toEqual({ date: "2026-10-22", title: "你转给对方", detail: "对方记录", pence: 500, kind: "settlement" });
+  expect(ledger.balance).toBe(1500);
+});

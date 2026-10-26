@@ -2,10 +2,8 @@
 
 import { BANK_LABEL } from "@/lib/banks";
 import { CATEGORIES, CATEGORY_LABEL, type Category } from "@/lib/categories";
-import type { ImportedTransaction } from "@/lib/ai/schemas";
+import type { PreviewRow } from "@/lib/import/preview";
 import { formatPence, parsePounds } from "@/lib/money";
-
-export type PreviewRow = ImportedTransaction & { key: string; duplicate: boolean; include: boolean };
 
 export function PreviewList({ rows, onChange }: { rows: PreviewRow[]; onChange: (rows: PreviewRow[]) => void }) {
   const update = (key: string, patch: Partial<PreviewRow>) =>

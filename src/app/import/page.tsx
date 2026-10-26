@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { PreviewList, type PreviewRow } from "@/components/import/PreviewList";
+import { PreviewList } from "@/components/import/PreviewList";
 import type { ModelKey } from "@/lib/ai/models";
 import type { ImportedTransaction } from "@/lib/ai/schemas";
 import { CSV_UNSUPPORTED_MESSAGE, parseCsv } from "@/lib/csv/registry";
 import { existingDedupeKeys, saveImport, uploadImage } from "@/lib/data/import";
-import { dedupeKey, markDuplicates } from "@/lib/dedupe";
+import { dedupeKey } from "@/lib/dedupe";
+import { mergePreview, type PreviewRow } from "@/lib/import/preview";
 import { compressImage, ImageDecodeError } from "@/lib/image/compress";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
@@ -21,8 +22,8 @@ async function recognise(path: string, model?: ModelKey) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ imagePath: path, model }),
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error ?? "识别失败");
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body) throw new Error(body?.error ?? "识别超时或失败，请重试");
   return body as { model: ModelKey; transactions: ImportedTransaction[] };
 }
 
@@ -30,7 +31,6 @@ export default function ImportPage() {
   const sb = createBrowserSupabase();
   const [userId, setUserId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<FileJob[]>([]);
-  const [found, setFound] = useState<Record<string, ImportedTransaction[]>>({});
   const [rows, setRows] = useState<PreviewRow[] | null>(null);
   const [model, setModel] = useState<ModelKey>("sonnet");
   const [busy, setBusy] = useState(false);
@@ -62,31 +62,31 @@ export default function ImportPage() {
     }
   }
 
-  async function buildPreview(all: Record<string, ImportedTransaction[]>) {
-    const list = Object.values(all).flat();
-    if (list.length === 0) {
+  /** Add new rows to the preview, keeping what the user already edited. `fresh` starts over. */
+  async function addToPreview(incoming: ImportedTransaction[], fresh = false) {
+    const base = fresh ? [] : (rows ?? []);
+    if (base.length === 0 && incoming.length === 0) {
       setRows(null);
       setMessage(NOTHING_FOUND);
       return;
     }
-    const existing = await existingDedupeKeys(sb, list.map(dedupeKey));
-    setRows(
-      markDuplicates(list, existing).map((t, i) => ({ ...t, key: `${i}-${dedupeKey(t)}`, include: !t.duplicate })),
-    );
-    setMessage(null);
+    const dbKeys = await existingDedupeKeys(sb, incoming.map(dedupeKey));
+    setRows(mergePreview(base, incoming, dbKeys));
+    setMessage(incoming.length === 0 ? NOTHING_FOUND : null);
   }
 
   async function processJobs(list: FileJob[], override?: ModelKey) {
     setBusy(true);
     setMessage(null);
-    const next: Record<string, ImportedTransaction[]> = override ? {} : { ...found };
-    for (const job of list) {
-      const txs = await runJob(job, override);
-      if (txs) next[job.id] = txs;
+    try {
+      const incoming: ImportedTransaction[] = [];
+      for (const job of list) incoming.push(...((await runJob(job, override)) ?? []));
+      await addToPreview(incoming, !!override);
+    } catch (e) {
+      setMessage(`出错了：${(e as Error).message}，请重试`);
+    } finally {
+      setBusy(false);
     }
-    setFound(next);
-    await buildPreview(next);
-    setBusy(false);
   }
 
   async function onPickImages(files: FileList | null) {
@@ -109,9 +109,11 @@ export default function ImportPage() {
       ...t,
       status: t.isTransfer || t.amountPence < 0 ? ("transfer" as const) : ("pending" as const),
     }));
-    const next = { ...found, [crypto.randomUUID()]: txs };
-    setFound(next);
-    await buildPreview(next);
+    try {
+      await addToPreview(txs);
+    } catch (e) {
+      setMessage(`出错了：${(e as Error).message}，请重试`);
+    }
   }
 
   async function save() {
@@ -127,7 +129,6 @@ export default function ImportPage() {
       setSaved(n);
       setRows(null);
       setJobs([]);
-      setFound({});
     } catch (e) {
       setMessage(`保存失败：${(e as Error).message}`);
     } finally {

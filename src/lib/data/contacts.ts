@@ -14,8 +14,15 @@ export type LedgerEntry = {
 type MySplit = { share_pence: number; transactions: { occurred_on: string; merchant: string; amount_pence: number } };
 type TheirShare = Pick<OwedShare, "occurred_on" | "merchant" | "amount_pence" | "share_pence">;
 type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null };
+/** A settlement the other person recorded; positive means I paid them. */
+type TheirSettlement = { amount_pence: number; settled_on: string; note: string | null };
 
-export function buildContactLedger(mine: MySplit[], theirs: TheirShare[], settlements: SettlementRow[]) {
+export function buildContactLedger(
+  mine: MySplit[],
+  theirs: TheirShare[],
+  settlements: SettlementRow[],
+  theirSettlements: TheirSettlement[] = [],
+) {
   const entries: LedgerEntry[] = [
     ...mine.map((s) => ({
       date: s.transactions.occurred_on,
@@ -38,6 +45,13 @@ export function buildContactLedger(mine: MySplit[], theirs: TheirShare[], settle
       pence: -s.amount_pence,
       kind: "settlement" as const,
     })),
+    ...theirSettlements.map((s) => ({
+      date: s.settled_on,
+      title: s.amount_pence > 0 ? "你转给对方" : "对方转给你",
+      detail: s.note ? `对方记录 · ${s.note}` : "对方记录",
+      pence: s.amount_pence,
+      kind: "settlement" as const,
+    })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   return { entries, balance: entries.reduce((s, e) => s + e.pence, 0) };
 }
@@ -47,15 +61,29 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
   if (error || !contact) throw new Error(error?.message ?? "找不到这个联系人");
   const c = contact as Contact;
 
-  const [mineRes, theirsRes, settlementsRes] = await Promise.all([
-    sb.from("splits").select("share_pence, transactions(occurred_on, merchant, amount_pence)").eq("contact_id", contactId),
-    c.linked_user_id ? sb.rpc("shares_owed_by_me") : Promise.resolve({ data: [], error: null }),
+  const none = Promise.resolve({ data: [], error: null });
+  const [mineRes, theirsRes, settlementsRes, theirSettlementsRes] = await Promise.all([
+    sb
+      .from("splits")
+      .select("share_pence, transactions!inner(occurred_on, merchant, amount_pence, status)")
+      .eq("contact_id", contactId)
+      .eq("transactions.status", "shared"),
+    c.linked_user_id ? sb.rpc("shares_owed_by_me") : none,
     sb.from("settlements").select("id, amount_pence, settled_on, note").eq("contact_id", contactId),
+    c.linked_user_id ? sb.rpc("counterpart_settlements") : none,
   ]);
-  for (const r of [mineRes, theirsRes, settlementsRes]) if (r.error) throw new Error(r.error.message);
+  for (const r of [mineRes, theirsRes, settlementsRes, theirSettlementsRes]) if (r.error) throw new Error(r.error.message);
 
-  const theirs = ((theirsRes.data ?? []) as OwedShare[]).filter((s) => s.owner_id === c.linked_user_id);
-  return { contact: c, ...buildContactLedger((mineRes.data ?? []) as unknown as MySplit[], theirs, (settlementsRes.data ?? []) as SettlementRow[]) };
+  const byThem = <T extends { owner_id: string }>(rows: T[]) => rows.filter((s) => s.owner_id === c.linked_user_id);
+  return {
+    contact: c,
+    ...buildContactLedger(
+      (mineRes.data ?? []) as unknown as MySplit[],
+      byThem((theirsRes.data ?? []) as OwedShare[]),
+      (settlementsRes.data ?? []) as SettlementRow[],
+      byThem((theirSettlementsRes.data ?? []) as (TheirSettlement & { owner_id: string })[]),
+    ),
+  };
 }
 
 /** Positive amount: they paid me. Negative: I paid them. */

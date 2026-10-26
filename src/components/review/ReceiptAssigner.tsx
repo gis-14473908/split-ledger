@@ -22,8 +22,8 @@ async function recognise(imagePath: string, model?: ModelKey): Promise<Recognise
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ imagePath, model }),
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error ?? "识别失败");
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body) throw new Error(body?.error ?? "识别超时或失败，请重试");
   return body;
 }
 

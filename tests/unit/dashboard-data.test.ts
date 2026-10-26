@@ -6,34 +6,24 @@ const contact = (id: string, name: string, linked: string | null = null) => ({
   id, owner_id: "me", name, linked_user_id: linked, invite_token: null, created_at: "",
 });
 
-it("nets my splits, their splits for me and settlements per contact", async () => {
+it("reads balances from the database and orders by size", async () => {
   const sb = recordingSupabase({
-    contacts: { data: [contact("c1", "孙豪", "u-b"), contact("c2", "李明"), contact("c3", "两清的人")], error: null },
-    splits: {
+    contacts: { data: [contact("c1", "孙豪", "u-b"), contact("c2", "李明"), contact("c3", "两清的人"), contact("c4", "没往来")], error: null },
+    "rpc.contact_balances": {
       data: [
-        { contact_id: "c1", share_pence: 1000 },
-        { contact_id: "c2", share_pence: 300 },
-        { contact_id: "c3", share_pence: 500 },
+        { contact_id: "c1", pence: 800 },
+        { contact_id: "c2", pence: -700 },
+        { contact_id: "c3", pence: 0 },
       ],
       error: null,
     },
-    "rpc.shares_owed_by_me": {
-      data: [
-        { owner_id: "u-b", share_pence: 200 },
-        { owner_id: "u-stranger", share_pence: 999 }, // no contact for them: ignored
-      ],
-      error: null,
-    },
-    settlements: { data: [{ contact_id: "c3", amount_pence: 500 }, { contact_id: "c2", amount_pence: 1000 }], error: null },
   });
-
   const rows = await loadBalances(sb as never);
   expect(rows.map((r) => [r.contact.name, r.pence])).toEqual([
-    ["李明", -700], // they overpaid me: I owe them
     ["孙豪", 800],
+    ["李明", -700],
     ["两清的人", 0],
-  ].sort((a, b) => Math.abs(b[1] as number) - Math.abs(a[1] as number)));
-  expect(rows.at(-1)!.pence).toBe(0);
+  ]);
 });
 
 it("summarises the month's spend by category", async () => {
@@ -74,4 +64,11 @@ it("turns invite errors into Chinese messages", async () => {
   expect(await acceptInvite(fail("invite_already_linked") as never, "t")).toEqual({ ok: false, message: "你已经和对方关联过了" });
   const ok = recordingSupabase({ "rpc.accept_invite": { data: "c1", error: null } });
   expect(await acceptInvite(ok as never, "t")).toEqual({ ok: true });
+  expect(ok.rpcCalls[0]).toEqual({ fn: "accept_invite", args: { p_token: "t", p_my_contact: null } });
+});
+
+it("links an existing contact when the accepter picks one", async () => {
+  const ok = recordingSupabase({ "rpc.accept_invite": { data: "c1", error: null } });
+  await acceptInvite(ok as never, "t", "mine-1");
+  expect(ok.rpcCalls[0]).toEqual({ fn: "accept_invite", args: { p_token: "t", p_my_contact: "mine-1" } });
 });

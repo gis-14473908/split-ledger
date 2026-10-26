@@ -179,6 +179,72 @@ grant usage on schema tests to anon;
 grant execute on all functions in schema tests to anon;
 set role anon;
 select tests.expect_error($q$select public.accept_invite('x')$q$, 'permission denied');
+select tests.expect_error($q$select * from public.contact_balances()$q$, 'permission denied');
 select tests.expect_error($q$select public.set_transaction_split('11111111-0000-4000-8000-000000000001', '[]')$q$, 'permission denied');
 select tests.expect_error($q$select * from public.shares_owed_by_me()$q$, 'permission denied');
+reset role;
+
+-- Review fixes (0005) ----------------------------------------------------------
+set role authenticated;
+select tests.as_user('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+insert into public.transactions (id, occurred_on, merchant_raw, merchant, amount_pence, category, source, status, dedupe_key) values
+  ('11111111-0000-4000-8000-000000000005', '2026-10-24', 'PRET', 'Pret', 1000, 'dining', 'screenshot', 'pending', 'k5');
+
+-- Splits only for pending/later spending, never negative shares.
+select tests.expect_error($q$select public.set_transaction_split('11111111-0000-4000-8000-000000000003', '[{"contact_id": null, "share_pence": 3000}]')$q$, 'stale');
+select tests.expect_error($q$select public.set_transaction_split('11111111-0000-4000-8000-000000000005', '[
+  {"contact_id": null, "share_pence": 3000},
+  {"contact_id": "a1a1a1a1-0000-4000-8000-000000000002", "share_pence": -2000}]')$q$, 'invalid_shares');
+
+-- Personal / later go through a guarded status change.
+select public.set_transaction_status('11111111-0000-4000-8000-000000000005', 'personal');
+select tests.expect_error($q$select public.set_transaction_status('11111111-0000-4000-8000-000000000005', 'later')$q$, 'stale');
+select tests.expect_error($q$select public.set_transaction_status('11111111-0000-4000-8000-000000000001', 'personal')$q$, 'stale');
+
+-- A shared transaction's amount and status are locked while it has splits.
+select tests.expect_error($q$update public.transactions set amount_pence = 1 where id = '11111111-0000-4000-8000-000000000001'$q$, 'locked');
+select tests.expect_error($q$update public.transactions set status = 'personal' where id = '11111111-0000-4000-8000-000000000001'$q$, 'locked');
+
+-- B records spending shared with A, and a payment A made to B.
+select tests.as_user('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+insert into public.transactions (id, occurred_on, merchant_raw, merchant, amount_pence, category, source, status, dedupe_key) values
+  ('33333333-0000-4000-8000-000000000001', '2026-10-24', 'DOMINOS', 'Domino''s', 400, 'dining', 'screenshot', 'pending', 'kb1');
+do $$
+declare b_to_a uuid := (select id from public.contacts where linked_user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+begin
+  perform public.set_transaction_split('33333333-0000-4000-8000-000000000001',
+    jsonb_build_array(jsonb_build_object('contact_id', null, 'share_pence', 200),
+                      jsonb_build_object('contact_id', b_to_a, 'share_pence', 200)));
+  insert into public.settlements (contact_id, amount_pence, settled_on) values (b_to_a, 100, '2026-10-25');
+end $$;
+
+-- A's balances: B owes 333 - 200 + 100 (A paid B £1) = 233; 李明 owes 333.
+select tests.as_user('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+do $$ begin
+  assert (select pence from public.contact_balances() where contact_id = 'a1a1a1a1-0000-4000-8000-000000000001') = 233,
+    format('balance with B is 233, got %s', (select pence from public.contact_balances() where contact_id = 'a1a1a1a1-0000-4000-8000-000000000001'));
+  assert (select pence from public.contact_balances() where contact_id = 'a1a1a1a1-0000-4000-8000-000000000002') = 333, 'balance with 李明 is 333';
+  assert (select count(*) from public.counterpart_settlements()) = 1, 'A sees the settlement B recorded';
+  assert (select amount_pence from public.counterpart_settlements()) = 100, 'counterpart settlement amount as B recorded it';
+end $$;
+
+-- Linking an existing name-only contact instead of creating a duplicate.
+select tests.as_user('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+insert into public.contacts (id, name) values ('c3c3c3c3-0000-4000-8000-000000000001', '阿明手写');
+select tests.as_user('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+insert into public.contacts (id, name) values ('a1a1a1a1-0000-4000-8000-000000000003', '小C');
+create temp table invite3 as select public.create_invite('a1a1a1a1-0000-4000-8000-000000000003') as token;
+select tests.as_user('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+do $$ begin
+  assert public.invite_info((select token from invite3)) = '阿明', 'invite shows who sent it';
+  assert public.invite_info('nope') is null, 'unknown token has no info';
+end $$;
+select tests.expect_error(
+  format('select public.accept_invite(%L, %L)', (select token from invite3), 'a1a1a1a1-0000-4000-8000-000000000001'), 'invalid_contact');
+do $$ begin
+  perform public.accept_invite((select token from invite3), 'c3c3c3c3-0000-4000-8000-000000000001');
+  assert (select linked_user_id from public.contacts where id = 'c3c3c3c3-0000-4000-8000-000000000001') = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'existing contact is linked';
+  assert (select count(*) from public.contacts) = 1, 'no duplicate contact created';
+end $$;
 reset role;

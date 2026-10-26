@@ -29,18 +29,29 @@ export function SwipeDeck({
 
   useEffect(() => setOffset({ dx: 0, dy: 0, flying: false }), [currentId]);
 
+  const inFlight = useRef(false);
+
   async function act(action: SwipeAction) {
-    if (action === "share") {
+    if (inFlight.current) return; // a double tap must not save the same card twice
+    inFlight.current = true;
+    try {
+      if (action === "share") {
+        setOffset({ dx: 0, dy: 0, flying: false });
+        await onAction("share");
+        return;
+      }
+      setOffset({ dx: action === "personal" ? -520 : 0, dy: action === "later" ? -700 : 40, flying: true });
+      await onAction(action);
+      // Bring the deck back whether the save failed or the same card stays on top
+      // (the last card put off with "later"); a new top card resets anyway.
       setOffset({ dx: 0, dy: 0, flying: false });
-      await onAction("share");
-      return;
+    } finally {
+      inFlight.current = false;
     }
-    setOffset({ dx: action === "personal" ? -520 : 0, dy: action === "later" ? -700 : 40, flying: true });
-    const ok = await onAction(action);
-    if (!ok) setOffset({ dx: 0, dy: 0, flying: false });
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    if (inFlight.current) return;
     drag.current = { active: true, x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
     top.current?.setPointerCapture(e.pointerId);
   }

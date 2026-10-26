@@ -44,3 +44,8 @@ it("rejects dates that are not ISO", () => {
   const bad = { ...sample, transactions: [{ ...sample.transactions[0], date: "22/10" }] };
   expect(StatementResult.safeParse(bad).success).toBe(false);
 });
+
+it("treats a transfer category as a transfer even without the flag", () => {
+  const r = StatementResult.parse({ ...sample, transactions: [{ ...sample.transactions[0], category: "transfer", is_transfer: false }] });
+  expect(toParsedTransactions(r)[0]).toMatchObject({ status: "transfer", isTransfer: true, category: "transfer" });
+});

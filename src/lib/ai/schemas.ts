@@ -48,7 +48,7 @@ export type ImportedTransaction = ParsedTransaction & { status: "pending" | "tra
 export function toParsedTransactions(r: StatementResult): ImportedTransaction[] {
   return r.transactions.map((t) => {
     const amountPence = poundsToPence(t.amount);
-    const transfer = t.is_transfer || amountPence < 0;
+    const transfer = t.is_transfer || t.category === "transfer" || amountPence < 0;
     return {
       occurredOn: t.date,
       occurredTime: t.time,
