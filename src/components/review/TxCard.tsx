@@ -1,14 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { BANK_LABEL } from "@/lib/banks";
 import { CATEGORIES, CATEGORY_COLOR, CATEGORY_LABEL, type Category } from "@/lib/categories";
 import type { ReviewItem } from "@/lib/data/review";
 import { formatCnDate, weekdayCn } from "@/lib/dates";
 import { formatPence } from "@/lib/money";
+import { dayWindow } from "@/lib/review/day-window";
+
+const DAY_ROWS = 6;
 
 export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c: Category) => void }) {
   const [picking, setPicking] = useState(false);
+  const [showDay, setShowDay] = useState(false);
+  const day = dayWindow(item.sameDay, DAY_ROWS);
+  const stop = (e: React.PointerEvent) => e.stopPropagation();
   const time = item.occurred_at_time?.slice(0, 5);
 
   return (
@@ -81,22 +88,53 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
 
       {item.sameDay.length > 1 && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-2.5">
-          <p className="text-xs tracking-widest text-muted">当天的消费</p>
-          {item.sameDay.slice(0, 6).map((d, i) => (
-            <div
-              key={i}
-              className={`grid grid-cols-[44px_1fr_auto] gap-2 text-[13px] ${d.isCurrent ? "font-bold text-ink" : "text-muted"}`}
-            >
-              <span className="num text-xs">{d.time ?? "—"}</span>
-              <span className="truncate">
-                {d.isCurrent && <span className="text-accent">▸ </span>}
-                {d.merchant}
-              </span>
-              <span className="num text-xs">{formatPence(d.amountPence)}</span>
-            </div>
-          ))}
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs tracking-widest text-muted">当天的消费（{item.sameDay.length} 笔）</p>
+            {(day.hiddenBefore > 0 || day.hiddenAfter > 0) && (
+              <button type="button" className="text-xs text-accent" onPointerDown={stop} onClick={() => setShowDay(true)}>
+                查看全部
+              </button>
+            )}
+          </div>
+          {day.hiddenBefore > 0 && <p className="text-xs text-muted">↑ 前面还有 {day.hiddenBefore} 笔</p>}
+          {day.rows.map((d, i) => <DayRow key={i} d={d} />)}
+          {day.hiddenAfter > 0 && <p className="text-xs text-muted">↓ 后面还有 {day.hiddenAfter} 笔</p>}
         </div>
       )}
+
+      {showDay &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDay(false)} aria-hidden />
+            <div
+              role="dialog"
+              aria-label="当天的全部消费"
+              className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[80dvh] max-w-[480px] flex-col gap-2 overflow-y-auto rounded-t-3xl bg-surface px-5 pt-3"
+              style={{ paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}
+            >
+              <div className="mx-auto h-1.5 w-10 rounded-full bg-line" />
+              <h2 className="font-bold">
+                {weekdayCn(item.occurred_on)} {formatCnDate(item.occurred_on)} · {item.sameDay.length} 笔
+              </h2>
+              {item.sameDay.map((d, i) => <DayRow key={i} d={d} />)}
+              <button type="button" className="btn mt-2" onClick={() => setShowDay(false)}>关闭</button>
+            </div>
+          </>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+function DayRow({ d }: { d: { time: string | null; merchant: string; amountPence: number; isCurrent: boolean } }) {
+  return (
+    <div className={`grid grid-cols-[44px_1fr_auto] gap-2 text-[13px] ${d.isCurrent ? "font-bold text-ink" : "text-muted"}`}>
+      <span className="num text-xs">{d.time ?? "—"}</span>
+      <span className="truncate">
+        {d.isCurrent && <span className="text-accent">▸ </span>}
+        {d.merchant}
+      </span>
+      <span className="num text-xs">{formatPence(d.amountPence)}</span>
     </div>
   );
 }
