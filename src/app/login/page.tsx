@@ -15,6 +15,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const linkInvalid = params.get("msg") === "link_invalid";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,6 +33,11 @@ function LoginForm() {
 
   return (
     <AuthShell title="登录">
+      {linkInvalid && (
+        <p className="card p-3 text-sm" role="alert">
+          邮件里的链接已过期或已经用过（也可能是在另一个浏览器里打开的）。请重新登录，或者再发一次重置邮件。
+        </p>
+      )}
       <form onSubmit={submit} className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm">
           邮箱
@@ -46,6 +52,8 @@ function LoginForm() {
       </form>
       <p className="text-sm text-muted">
         还没有账号？<Link className="text-accent" href={`/signup?next=${encodeURIComponent(next)}`}>注册</Link>
+        <span className="mx-2">·</span>
+        <Link className="text-accent" href="/forgot">忘记密码？</Link>
       </p>
     </AuthShell>
   );

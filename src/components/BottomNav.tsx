@@ -8,7 +8,7 @@ import { createBrowserSupabase } from "@/lib/supabase/browser";
 /** Fire on window after a transaction leaves or re-enters the pending queue. */
 export const PENDING_CHANGED = "pending-changed";
 
-const HIDDEN = ["/login", "/signup", "/invite", "/auth"];
+const HIDDEN = ["/login", "/signup", "/invite", "/auth", "/forgot", "/reset-password"];
 
 const ITEMS = [
   { href: "/", label: "面板" },

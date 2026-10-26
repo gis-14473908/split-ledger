@@ -1,10 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { emailLinkRedirect } from "../auth/email-link";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/invite", "/auth"];
+const PUBLIC_PATHS = ["/login", "/signup", "/invite", "/auth", "/forgot"];
 
 /** Refreshes the Supabase session cookie and sends signed-out visitors to /login. */
 export async function updateSession(request: NextRequest) {
+  const fromEmail = emailLinkRedirect(request.nextUrl);
+  if (fromEmail) return NextResponse.redirect(fromEmail);
+
   let response = NextResponse.next({ request });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: {
