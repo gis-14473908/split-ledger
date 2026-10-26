@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
+/** Fire on window after a transaction leaves or re-enters the pending queue. */
+export const PENDING_CHANGED = "pending-changed";
+
 const HIDDEN = ["/login", "/signup", "/invite", "/auth"];
 
 const ITEMS = [
@@ -21,11 +24,15 @@ export function BottomNav() {
 
   useEffect(() => {
     if (hidden) return;
-    createBrowserSupabase()
-      .from("transactions")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["pending", "later"])
-      .then(({ count }) => setPending(count ?? 0));
+    const refresh = () =>
+      createBrowserSupabase()
+        .from("transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .then(({ count }) => setPending(count ?? 0));
+    refresh();
+    window.addEventListener(PENDING_CHANGED, refresh);
+    return () => window.removeEventListener(PENDING_CHANGED, refresh);
   }, [path, hidden]);
 
   if (hidden) return null;
