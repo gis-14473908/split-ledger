@@ -1,5 +1,5 @@
 -- Two confirmed test accounts for the end-to-end smoke test.
--- Run with psql -v pw="'<password>'" or substitute :pw before running via the Supabase SQL editor.
+-- Replace :pw with a password of your choice (keep it in .env.local as E2E_PASSWORD) and run in the SQL editor.
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
                         confirmation_token, recovery_token, email_change_token_new, email_change)
