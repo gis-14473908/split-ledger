@@ -33,7 +33,7 @@ npm run e2e       # end-to-end smoke test, see e2e/smoke.spec.ts for prerequisit
 
 ## Database
 
-Migrations live in `supabase/migrations` and are applied in order (0001 → 0004). `0003_storage.sql` needs Supabase's storage schema, so the local SQL tests skip it.
+Migrations live in `supabase/migrations` and are applied in order (0001 → 0005). `0003_storage.sql` needs Supabase's storage schema, so the local SQL tests skip it.
 
 ## Adding a bank's CSV format
 
