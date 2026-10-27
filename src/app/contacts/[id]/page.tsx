@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
-import { loadContactDetail, settle, type LedgerEntry } from "@/lib/data/contacts";
+import {
+  deleteSettlement,
+  loadContactDetail,
+  settle,
+  updateSettlement,
+  type LedgerEntry,
+  type SettlementRow,
+} from "@/lib/data/contacts";
 import { createInviteLink } from "@/lib/data/dashboard";
 import type { Contact } from "@/lib/db/types";
 import { formatCnDate } from "@/lib/dates";
@@ -23,6 +30,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
 
   const load = useCallback(() => {
     loadContactDetail(sb, id)
@@ -138,23 +146,135 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
           <p className="card p-4 text-sm text-muted">还没有记录</p>
         ) : (
           <ul className="card divide-y divide-line">
-            {entries.map((e, i) => (
-              <li key={i} className="flex items-center gap-3 px-4 py-3">
-                <span className="num w-14 shrink-0 text-xs text-muted">{formatCnDate(e.date)}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{e.title}</span>
-                  {e.detail && <span className="block truncate text-xs text-muted">{e.detail}</span>}
-                </span>
-                <span className={`num ${e.pence > 0 ? "text-accent" : "text-later"}`}>
-                  {e.pence > 0 ? "+" : "−"}
-                  {formatPence(Math.abs(e.pence))}
-                </span>
-              </li>
-            ))}
+            {entries.map((e, i) => {
+              const row = (
+                <>
+                  <span className="num w-14 shrink-0 text-xs text-muted">{formatCnDate(e.date)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{e.title}</span>
+                    {e.detail && <span className="block truncate text-xs text-muted">{e.detail}</span>}
+                  </span>
+                  <span className={`num ${e.pence > 0 ? "text-accent" : "text-later"}`}>
+                    {e.pence > 0 ? "+" : "−"}
+                    {formatPence(Math.abs(e.pence))}
+                  </span>
+                  {e.ref && <span className="text-muted" aria-hidden>›</span>}
+                </>
+              );
+              const cls = "flex w-full items-center gap-3 px-4 py-3 text-left";
+              if (e.ref?.type === "bill") {
+                return (
+                  <li key={i}>
+                    <Link href={`/bills?tx=${e.ref.id}`} className={cls}>{row}</Link>
+                  </li>
+                );
+              }
+              if (e.ref?.type === "settlement") {
+                const s = e.ref.settlement;
+                return (
+                  <li key={i}>
+                    <button className={cls} onClick={() => setEditing((cur) => (cur === s.id ? null : s.id))}>{row}</button>
+                    {editing === s.id && (
+                      <SettlementEditor
+                        settlement={s}
+                        name={contact.name}
+                        onDone={() => {
+                          setEditing(null);
+                          load();
+                        }}
+                      />
+                    )}
+                  </li>
+                );
+              }
+              return (
+                <li key={i} className={cls}>{row}</li>
+              );
+            })}
           </ul>
         )}
-        <p className="text-xs text-muted">“+” 表示 TA 欠你的增加，“−” 表示减少。</p>
+        <p className="text-xs text-muted">“+” 表示 TA 欠你的增加，“−” 表示减少。点一条可以修改或删除（对方记的那几条只能 TA 自己改）。</p>
       </section>
     </main>
+  );
+}
+
+/** Inline editor for a repayment or opening balance I recorded. */
+function SettlementEditor({ settlement, name, onDone }: { settlement: SettlementRow; name: string; onDone: () => void }) {
+  const opening = settlement.kind === "opening";
+  // Stored sign: positive = they paid me (payment) / I owed them (opening).
+  const [positive, setPositive] = useState(settlement.amount_pence > 0);
+  const [amount, setAmount] = useState((Math.abs(settlement.amount_pence) / 100).toFixed(2));
+  const [date, setDate] = useState(settlement.settled_on);
+  const [note, setNote] = useState(settlement.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const sb = createBrowserSupabase();
+
+  const options: { positive: boolean; label: string }[] = opening
+    ? [
+        { positive: false, label: `${name} 欠我` },
+        { positive: true, label: `我欠 ${name}` },
+      ]
+    : [
+        { positive: true, label: `${name} 转给我` },
+        { positive: false, label: `我转给 ${name}` },
+      ];
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    const pence = parsePounds(amount);
+    if (!pence || pence <= 0) return setError("请输入大于 0 的金额");
+    if (!date) return setError("请选择日期");
+    run(() => updateSettlement(sb, settlement.id, { amountPence: positive ? pence : -pence, settledOn: date, note }));
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-col gap-2 bg-phone px-4 pt-1 pb-4">
+      <p className="text-xs text-muted">{opening ? "修改起始欠款" : "修改这笔还款"}</p>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            aria-pressed={positive === o.positive}
+            onClick={() => setPositive(o.positive)}
+            className={`rounded-xl px-3 py-2 text-sm ${positive === o.positive ? "border-2 border-accent bg-surface" : "border border-line bg-surface"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <input className="field num" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="金额" />
+        <input className="field num" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="日期" />
+      </div>
+      <input className="field" placeholder="备注（可选）" maxLength={50} value={note} onChange={(e) => setNote(e.target.value)} aria-label="备注" />
+      {error && <p className="text-sm text-danger" role="alert">{error}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className="btn py-2 text-sm text-danger"
+          disabled={busy}
+          onClick={() => (confirmDelete ? run(() => deleteSettlement(sb, settlement.id)) : setConfirmDelete(true))}
+        >
+          {confirmDelete ? "确认删除？" : "删除"}
+        </button>
+        <button className="btn btn-primary py-2 text-sm" disabled={busy}>{busy ? "保存中…" : "保存"}</button>
+      </div>
+    </form>
   );
 }

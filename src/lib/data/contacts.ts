@@ -9,12 +9,14 @@ export type LedgerEntry = {
   /** Effect on what this contact owes me: positive raises it. */
   pence: number;
   kind: "theyOwe" | "iOwe" | "settlement";
+  /** What a tap opens: my own bill or settlement. Entries the other person recorded have none. */
+  ref?: { type: "bill"; id: string } | { type: "settlement"; settlement: SettlementRow };
 };
 
-type MySplit = { share_pence: number; transactions: { occurred_on: string; merchant: string; amount_pence: number } };
+type MySplit = { share_pence: number; transactions: { id: string; occurred_on: string; merchant: string; amount_pence: number } };
 type TheirShare = Pick<OwedShare, "occurred_on" | "merchant" | "amount_pence" | "share_pence">;
-type SettlementKind = "payment" | "opening";
-type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
+export type SettlementKind = "payment" | "opening";
+export type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
 /** A settlement the other person recorded; positive means I paid them. */
 type TheirSettlement = { amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
 
@@ -33,6 +35,7 @@ export function buildContactLedger(
       detail: `你付的 ${formatPence(s.transactions.amount_pence)}`,
       pence: s.share_pence,
       kind: "theyOwe" as const,
+      ref: { type: "bill" as const, id: s.transactions.id },
     })),
     ...theirs.map((s) => ({
       date: s.occurred_on,
@@ -47,6 +50,7 @@ export function buildContactLedger(
       detail: s.note,
       pence: -s.amount_pence,
       kind: "settlement" as const,
+      ref: { type: "settlement" as const, settlement: s },
     })),
     ...theirSettlements.map((s) => ({
       date: s.settled_on,
@@ -68,7 +72,7 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
   const [mineRes, theirsRes, settlementsRes, theirSettlementsRes] = await Promise.all([
     sb
       .from("splits")
-      .select("share_pence, transactions!inner(occurred_on, merchant, amount_pence, status)")
+      .select("share_pence, transactions!inner(id, occurred_on, merchant, amount_pence, status)")
       .eq("contact_id", contactId)
       .eq("transactions.status", "shared"),
     c.linked_user_id ? sb.rpc("shares_owed_by_me") : none,
@@ -92,6 +96,25 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
 /** Positive amount: they paid me. Negative: I paid them. */
 export async function settle(sb: SupabaseClient, contactId: string, amountPence: number, note?: string) {
   const { error } = await sb.from("settlements").insert({ contact_id: contactId, amount_pence: amountPence, note: note || null });
+  if (error) throw new Error(error.message);
+}
+
+/** Same sign rule as settle(): positive means they paid me (or, for an opening balance, I owed them). */
+export async function updateSettlement(
+  sb: SupabaseClient,
+  id: string,
+  patch: { amountPence: number; settledOn: string; note: string },
+) {
+  if (patch.amountPence === 0) throw new Error("金额不能是 0，不要这条记录的话请删除");
+  const { error } = await sb
+    .from("settlements")
+    .update({ amount_pence: patch.amountPence, settled_on: patch.settledOn, note: patch.note.trim() || null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteSettlement(sb: SupabaseClient, id: string) {
+  const { error } = await sb.from("settlements").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 

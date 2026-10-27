@@ -12,6 +12,7 @@ const HIDDEN = ["/login", "/signup", "/invite", "/auth", "/forgot", "/reset-pass
 
 const ITEMS = [
   { href: "/", label: "面板" },
+  { href: "/bills", label: "账单" },
   { href: "/import", label: "导入" },
   { href: "/review", label: "待处理" },
   { href: "/settings", label: "设置" },

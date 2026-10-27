@@ -84,7 +84,10 @@ export default function Dashboard() {
       )}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm tracking-widest text-muted">每个人</h2>
+        <h2 className="flex items-baseline justify-between text-sm text-muted">
+          <span className="tracking-widest">每个人</span>
+          {rows && rows.length > 0 && <span className="text-xs">点名字看明细、改还款</span>}
+        </h2>
         {error && <p className="card p-4 text-sm text-danger">加载失败：{error}</p>}
         {rows ? <BalanceList rows={rows} /> : !error && <p className="text-sm text-muted">加载中…</p>}
       </section>
