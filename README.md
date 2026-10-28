@@ -1,6 +1,6 @@
 # 分账本 (split-ledger)
 
-A phone-first web app for students in the UK: import bank transactions from screenshots, let Claude categorise them, swipe through each one to mark it as yours or shared, split shared ones evenly or item by item from a receipt photo, and see what each friend owes you.
+A phone-first web app for students in the UK: import bank transactions from screenshots or CSV exports, let Claude categorise them, swipe through each one to mark it as yours or shared, split shared ones evenly or item by item from a receipt photo, and see what each friend owes you.
 
 - Next.js (App Router) on Vercel
 - Supabase for auth, Postgres (row level security) and private image storage
