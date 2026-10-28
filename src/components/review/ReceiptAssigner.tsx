@@ -14,6 +14,13 @@ import type { SplitTarget } from "./SplitSheet";
 
 type Line = ReceiptLine & { name: string };
 
+/** A receipt saved earlier, reopened for editing. */
+export type ExistingReceipt = {
+  imagePath: string;
+  model: ModelKey;
+  lines: { name: string; pricePence: number; includesMe: boolean; contactIds: string[] }[];
+};
+
 type Recognised = { model: ModelKey; merchant: string | null; items: { name: string; pricePence: number }[]; totalPence: number };
 
 async function recognise(imagePath: string, model?: ModelKey): Promise<Recognised> {
@@ -32,20 +39,33 @@ export function ReceiptAssigner({
   target,
   people,
   contacts,
+  existing,
   onCancel,
   onDone,
 }: {
   target: SplitTarget;
   people: { includeMe: boolean; contactIds: string[] };
   contacts: Contact[];
+  /** Start from this receipt instead of a new photo. Owners no longer in `people` are dropped. */
+  existing?: ExistingReceipt;
   onCancel: () => void;
   onDone: (shares: Share[]) => Promise<void>;
 }) {
   const sb = createBrowserSupabase();
   const input = useRef<HTMLInputElement>(null);
-  const [imagePath, setImagePath] = useState<string | null>(null);
-  const [model, setModel] = useState<ModelKey>("sonnet");
-  const [lines, setLines] = useState<Line[] | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(existing?.imagePath ?? null);
+  const [model, setModel] = useState<ModelKey>(existing?.model ?? "sonnet");
+  const [lines, setLines] = useState<Line[] | null>(() =>
+    existing
+      ? existing.lines.map((l, n) => ({
+          id: `l${n}-old`,
+          name: l.name,
+          pricePence: l.pricePence,
+          includesMe: l.includesMe && people.includeMe,
+          contactIds: l.contactIds.filter((c) => people.contactIds.includes(c)),
+        }))
+      : null,
+  );
   const [reconcile, setReconcile] = useState<Reconcile>("proportional");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +171,7 @@ export function ReceiptAssigner({
         {lines && (
           <>
             <div className="flex flex-wrap items-center gap-2 text-sm">
+              <button className="text-accent" disabled={!!busy} onClick={() => input.current?.click()}>重新拍小票</button>
               <span className="text-muted">一键全给：</span>
               {owners.map((o) => (
                 <button key={o.id ?? "me"} className="rounded-full border border-line bg-surface px-3 py-1" onClick={() => giveAllTo(o.id)}>

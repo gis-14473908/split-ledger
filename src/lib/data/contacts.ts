@@ -13,7 +13,22 @@ export type LedgerEntry = {
   ref?: { type: "bill"; id: string } | { type: "settlement"; settlement: SettlementRow };
 };
 
-type MySplit = { share_pence: number; transactions: { id: string; occurred_on: string; merchant: string; amount_pence: number } };
+type MySplit = {
+  share_pence: number;
+  transactions: { id: string; occurred_on: string; merchant: string; amount_pence: number };
+  /** What this contact had, when the bill was split from a receipt. */
+  itemNames?: string[];
+};
+type ReceiptEmbed = { receipt_items: { name: string; contact_ids: string[]; includes_me: boolean; position?: number }[] };
+
+/** Item names on a receipt that include this contact; shared items are marked. */
+export function itemsFor(receipts: ReceiptEmbed | ReceiptEmbed[] | null | undefined, contactId: string): string[] {
+  const r = Array.isArray(receipts) ? receipts[0] : receipts;
+  return [...(r?.receipt_items ?? [])]
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .filter((i) => i.contact_ids.includes(contactId))
+    .map((i) => (i.contact_ids.length + (i.includes_me ? 1 : 0) > 1 ? `${i.name}（合）` : i.name));
+}
 type TheirShare = Pick<OwedShare, "occurred_on" | "merchant" | "amount_pence" | "share_pence">;
 export type SettlementKind = "payment" | "opening";
 export type SettlementRow = { id: string; amount_pence: number; settled_on: string; note: string | null; kind?: SettlementKind };
@@ -32,7 +47,7 @@ export function buildContactLedger(
     ...mine.map((s) => ({
       date: s.transactions.occurred_on,
       title: s.transactions.merchant,
-      detail: `你付的 ${formatPence(s.transactions.amount_pence)}`,
+      detail: `你付的 ${formatPence(s.transactions.amount_pence)}${s.itemNames?.length ? ` · ${s.itemNames.join("、")}` : ""}`,
       pence: s.share_pence,
       kind: "theyOwe" as const,
       ref: { type: "bill" as const, id: s.transactions.id },
@@ -72,7 +87,9 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
   const [mineRes, theirsRes, settlementsRes, theirSettlementsRes] = await Promise.all([
     sb
       .from("splits")
-      .select("share_pence, transactions!inner(id, occurred_on, merchant, amount_pence, status)")
+      .select(
+        "share_pence, transactions!inner(id, occurred_on, merchant, amount_pence, status, receipts(receipt_items(name, contact_ids, includes_me, position)))",
+      )
       .eq("contact_id", contactId)
       .eq("transactions.status", "shared"),
     c.linked_user_id ? sb.rpc("shares_owed_by_me") : none,
@@ -85,7 +102,9 @@ export async function loadContactDetail(sb: SupabaseClient, contactId: string) {
   return {
     contact: c,
     ...buildContactLedger(
-      (mineRes.data ?? []) as unknown as MySplit[],
+      ((mineRes.data ?? []) as unknown as (MySplit & { transactions: { receipts?: ReceiptEmbed | ReceiptEmbed[] } })[]).map(
+        (s) => ({ ...s, itemNames: itemsFor(s.transactions.receipts, contactId) }),
+      ),
       byThem((theirsRes.data ?? []) as OwedShare[]),
       (settlementsRes.data ?? []) as SettlementRow[],
       byThem((theirSettlementsRes.data ?? []) as (TheirSettlement & { owner_id: string })[]),

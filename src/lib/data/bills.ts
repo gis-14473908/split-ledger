@@ -3,8 +3,36 @@ import type { Category } from "../categories";
 import type { Contact, Transaction, TxStatus } from "../db/types";
 import { dedupeKey } from "../dedupe";
 import { formatPence } from "../money";
+import type { Share } from "../split/equal";
 
-export type Bill = Transaction & { splits: { contact_id: string | null; share_pence: number }[] };
+export type ReceiptItemRow = { name: string; price_pence: number; includes_me: boolean; contact_ids: string[]; position: number };
+export type BillReceipt = { id: string; image_path: string; total_pence: number; model_used: string | null; receipt_items: ReceiptItemRow[] };
+
+export type Bill = Transaction & {
+  splits: { contact_id: string | null; share_pence: number }[];
+  /** Set when the bill was split item by item from a receipt photo. */
+  receipt: BillReceipt | null;
+};
+
+/** PostgREST returns a one-to-one embed as an object, older setups as a one-element array. */
+export function oneReceipt(raw: unknown): BillReceipt | null {
+  const r = (Array.isArray(raw) ? raw[0] : raw) as BillReceipt | null | undefined;
+  if (!r) return null;
+  return { ...r, receipt_items: [...(r.receipt_items ?? [])].sort((a, b) => a.position - b.position) };
+}
+
+/** Who is in a split now: me plus the contacts with a share. */
+export function splitPeople(bill: Bill) {
+  return {
+    includeMe: bill.splits.some((s) => s.contact_id === null),
+    contactIds: bill.splits.flatMap((s) => (s.contact_id ? [s.contact_id] : [])),
+  };
+}
+
+/** Names on one receipt line, me first. */
+export function itemOwners(item: Pick<ReceiptItemRow, "includes_me" | "contact_ids">, contacts: Contact[]): string[] {
+  return [...(item.includes_me ? ["我"] : []), ...item.contact_ids.map((id) => contacts.find((c) => c.id === id)?.name ?? "?")];
+}
 
 export type BillFilter = "all" | "shared" | "personal" | "transfer" | "pending";
 
@@ -61,14 +89,20 @@ export async function loadBills(sb: SupabaseClient) {
   const [billsRes, contactsRes] = await Promise.all([
     sb
       .from("transactions")
-      .select("*, splits(contact_id, share_pence)")
+      .select(
+        "*, splits(contact_id, share_pence), receipts(id, image_path, total_pence, model_used, receipt_items(name, price_pence, includes_me, contact_ids, position))",
+      )
       .order("occurred_on", { ascending: false })
       .order("occurred_at_time", { ascending: false, nullsFirst: false })
       .limit(2000),
     sb.from("contacts").select("*").order("created_at"),
   ]);
   for (const r of [billsRes, contactsRes]) if (r.error) throw new Error(r.error.message);
-  return { bills: (billsRes.data ?? []) as Bill[], contacts: (contactsRes.data ?? []) as Contact[] };
+  const bills = ((billsRes.data ?? []) as (Bill & { receipts?: unknown })[]).map(({ receipts, ...b }) => ({
+    ...b,
+    receipt: oneReceipt(receipts),
+  }));
+  return { bills, contacts: (contactsRes.data ?? []) as Contact[] };
 }
 
 export type BillPatch = { merchant?: string; occurredOn?: string; category?: Category; amountPence?: number };
@@ -119,4 +153,19 @@ export async function addManualBill(sb: SupabaseClient, b: ManualBill) {
     dedupe_key: dedupeKey({ occurredOn: b.occurredOn, amountPence: b.amountPence, merchantRaw: merchant }),
   });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Replace a split with new shares for everyone at once. Without a receipt (an even split),
+ * any receipt saved earlier is dropped so the item list never disagrees with the shares.
+ */
+export async function saveNewSplit(sb: SupabaseClient, billId: string, shares: Share[], keepReceipt: boolean) {
+  const { error } = await sb.rpc("set_transaction_split", {
+    p_tx: billId,
+    p_shares: shares.map((s) => ({ contact_id: s.contactId, share_pence: s.sharePence })),
+  });
+  if (error) throw new Error(error.message);
+  if (keepReceipt) return;
+  const { error: e2 } = await sb.from("receipts").delete().eq("transaction_id", billId);
+  if (e2) throw new Error(e2.message);
 }

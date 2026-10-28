@@ -152,7 +152,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
                   <span className="num w-14 shrink-0 text-xs text-muted">{formatCnDate(e.date)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{e.title}</span>
-                    {e.detail && <span className="block truncate text-xs text-muted">{e.detail}</span>}
+                    {e.detail && <span className="line-clamp-3 block text-xs text-muted">{e.detail}</span>}
                   </span>
                   <span className={`num ${e.pence > 0 ? "text-accent" : "text-later"}`}>
                     {e.pence > 0 ? "+" : "−"}

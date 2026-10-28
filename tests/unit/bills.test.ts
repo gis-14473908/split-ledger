@@ -5,11 +5,15 @@ import {
   deleteBill,
   filterBills,
   groupByMonth,
+  itemOwners,
+  oneReceipt,
+  saveNewSplit,
+  splitPeople,
   splitSummary,
   updateBill,
   type Bill,
 } from "@/lib/data/bills";
-import { deleteSettlement, updateSettlement } from "@/lib/data/contacts";
+import { deleteSettlement, itemsFor, updateSettlement } from "@/lib/data/contacts";
 import type { Contact } from "@/lib/db/types";
 import { recordingSupabase } from "./fake-supabase";
 
@@ -146,5 +150,67 @@ describe("editing settlements", () => {
       { table: "settlements", op: "delete", args: [] },
       { table: "settlements", op: "eq", args: ["id", "s1"] },
     ]);
+  });
+});
+
+describe("receipt details", () => {
+  it("reads a one-to-one receipt embed in either shape, items in receipt order", () => {
+    const r = { id: "r1", image_path: "p", total_pence: 900, model_used: "sonnet", receipt_items: [
+      { name: "B", price_pence: 400, includes_me: false, contact_ids: ["c1"], position: 1 },
+      { name: "A", price_pence: 500, includes_me: true, contact_ids: [], position: 0 },
+    ] };
+    expect(oneReceipt(r)!.receipt_items.map((i) => i.name)).toEqual(["A", "B"]);
+    expect(oneReceipt([r])!.id).toBe("r1");
+    expect(oneReceipt([])).toBeNull();
+    expect(oneReceipt(null)).toBeNull();
+  });
+
+  it("lists who had each item and who is in the split", () => {
+    expect(itemOwners({ includes_me: true, contact_ids: ["c2"] }, contacts)).toEqual(["我", "小红"]);
+    const b = bill({ splits: [{ contact_id: null, share_pence: 1 }, { contact_id: "c1", share_pence: 2 }] });
+    expect(splitPeople(b)).toEqual({ includeMe: true, contactIds: ["c1"] });
+    expect(splitPeople(bill({ splits: [{ contact_id: "c2", share_pence: 3 }] }))).toEqual({ includeMe: false, contactIds: ["c2"] });
+  });
+
+  it("names a contact's items on a receipt and marks shared ones", () => {
+    const receipt = { receipt_items: [
+      { name: "可乐", contact_ids: ["c1"], includes_me: false, position: 1 },
+      { name: "披萨", contact_ids: ["c1"], includes_me: true, position: 0 },
+      { name: "牛奶", contact_ids: ["c2"], includes_me: false, position: 2 },
+    ] };
+    expect(itemsFor(receipt, "c1")).toEqual(["披萨（合）", "可乐"]);
+    expect(itemsFor([receipt], "c2")).toEqual(["牛奶"]);
+    expect(itemsFor(null, "c1")).toEqual([]);
+  });
+});
+
+describe("saving a changed split", () => {
+  const shares = [
+    { contactId: null, sharePence: 500 },
+    { contactId: "c1", sharePence: 500 },
+  ];
+
+  it("replaces every share in one call and keeps the receipt for a receipt split", async () => {
+    const sb = recordingSupabase();
+    await saveNewSplit(sb as never, "t1", shares, true);
+    expect(sb.rpcCalls).toEqual([
+      { fn: "set_transaction_split", args: { p_tx: "t1", p_shares: [{ contact_id: null, share_pence: 500 }, { contact_id: "c1", share_pence: 500 }] } },
+    ]);
+    expect(sb.calls).toEqual([]);
+  });
+
+  it("drops the old receipt when the bill is now split evenly", async () => {
+    const sb = recordingSupabase();
+    await saveNewSplit(sb as never, "t1", shares, false);
+    expect(sb.calls).toEqual([
+      { table: "receipts", op: "delete", args: [] },
+      { table: "receipts", op: "eq", args: ["transaction_id", "t1"] },
+    ]);
+  });
+
+  it("does not touch the receipt when the new split fails", async () => {
+    const sb = recordingSupabase({ "rpc.set_transaction_split": { data: null, error: { message: "shares_mismatch" } } });
+    await expect(saveNewSplit(sb as never, "t1", shares, false)).rejects.toThrow("shares_mismatch");
+    expect(sb.calls).toEqual([]);
   });
 });

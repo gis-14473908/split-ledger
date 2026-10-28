@@ -18,6 +18,7 @@ export function SplitSheet({
   onCancel,
   onEqual,
   onReceipt,
+  initial,
 }: {
   target: SplitTarget;
   contacts: Contact[];
@@ -25,10 +26,13 @@ export function SplitSheet({
   onCancel: () => void;
   onEqual: (shares: Share[]) => Promise<void>;
   onReceipt: (people: { includeMe: boolean; contactIds: string[] }) => void;
+  /** Who and how, when changing a split that already exists. */
+  initial?: { includeMe: boolean; contactIds: string[]; mode: "even" | "receipt"; hasReceipt: boolean };
 }) {
-  const [includeMe, setIncludeMe] = useState(true);
-  const [picked, setPicked] = useState<string[]>([]);
-  const [mode, setMode] = useState<"even" | "receipt">("even");
+  const [includeMe, setIncludeMe] = useState(initial?.includeMe ?? true);
+  const [picked, setPicked] = useState<string[]>(initial?.contactIds ?? []);
+  const [mode, setMode] = useState<"even" | "receipt">(initial?.mode ?? "even");
+  const receiptStep = initial?.hasReceipt ? "下一步：调整每样商品是谁的" : "下一步：拍小票 → 逐个商品点选是谁的";
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -79,7 +83,7 @@ export function SplitSheet({
       >
         <div className="mx-auto h-1.5 w-10 rounded-full bg-line" />
         <div>
-          <h2 className="text-lg font-bold">和谁一起？</h2>
+          <h2 className="text-lg font-bold">{initial ? "修改分账" : "和谁一起？"}</h2>
           <p className="num text-[13px] text-muted">
             {target.merchant} · {formatPence(target.amountPence)}
           </p>
@@ -133,7 +137,7 @@ export function SplitSheet({
           {!picked.length
             ? "至少选一个同学"
             : mode === "receipt"
-              ? "下一步：拍小票 → 逐个商品点选是谁的"
+              ? receiptStep
               : preview
                   .map((s) => (s.contactId === null ? `你自己 ${formatPence(s.sharePence)}` : `${nameOf(s.contactId)} 欠你 ${formatPence(s.sharePence)}`))
                   .join("　") + (includeMe ? "" : "（你代付，不含自己）")}
@@ -144,7 +148,7 @@ export function SplitSheet({
         <div className="grid grid-cols-[auto_1fr] gap-2">
           <button type="button" className="btn" onClick={onCancel}>取消</button>
           <button type="button" className="btn btn-primary" disabled={!picked.length || busy} onClick={confirm}>
-            {mode === "receipt" ? "去拍小票" : busy ? "保存中…" : "确认分账"}
+            {mode === "receipt" ? (initial?.hasReceipt ? "下一步" : "去拍小票") : busy ? "保存中…" : "确认分账"}
           </button>
         </div>
       </div>
