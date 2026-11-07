@@ -100,14 +100,22 @@ type ProviderDef = {
 - 每次 **内置源** 调用成功后：`cost = inTokens*priceIn + outTokens*priceOut`（换算到 micro-USD 整数），累加到用户用量。
 - 自定义源：不计费、不累加。
 
-**存储与检查**：新 security-definer RPC（仿 `ai_rate_check`）：
-- `ai_quota_check()`：读当前用户累计用量，若 `>= QUOTA_MICRO`（1_000_000）抛 `rate_limited`-风格错误（实际用新码 `quota_exceeded`）。内置源调用**前**执行。
-- `ai_quota_add(p_micro bigint)`：原子累加当前用户用量。内置源调用**后**执行。
-- 用量存新表 `ai_usage(owner_id uuid pk, used_micro bigint not null default 0, updated_at timestamptz)`，RLS 只读自己的行；累加只经 RPC（security definer）。
+**额度构成**：用户在内置源上的**总额度 = 免费额度（$1，`FREE_MICRO = 1_000_000`）+ 已授予额度（`granted_micro`，作者售后发放）**。超过总额度即停用内置源。
 
-**超额行为**：内置源触发 `quota_exceeded` → 返回中文提示「内置免费额度已用完，请在设置里添加你自己的 AI 源」。自定义源完全不受影响。
+> ⚠️ 已有一张名为 `ai_usage` 的表（每分钟限流日志）。额度表**另起名 `ai_quota`**，严禁复用 `ai_usage`。
 
-**展示**：设置页内置源区块显示「已用 $x.xx / $1.00」进度条（读 `ai_usage.used_micro`）。
+**存储与检查**：新表 `ai_quota(owner_id uuid pk, used_micro bigint default 0, granted_micro bigint default 0, updated_at timestamptz)`，RLS 只读自己的行；写入只经 security-definer RPC（仿 `ai_rate_check`）：
+- `ai_quota_check()`：若 `used_micro >= FREE_MICRO + granted_micro` 抛 `quota_exceeded`。内置源调用**前**执行。
+- `ai_quota_add(p_micro bigint)`：原子累加 `used_micro`。内置源调用**后**执行。
+
+**付费加额度（先只做机制，不接在线支付）**：
+- 作者收款走线下（转账等），然后给对应用户发放额度。发放经 security-definer 函数 `admin_grant_quota(p_user uuid, p_paid_micro bigint)`：把 `floor(p_paid_micro * PAID_RATIO)` 累加到该用户的 `granted_micro`。
+- `PAID_RATIO = 0.5` **写死在函数内部（服务端），绝不出现在任何用户可见界面或响应里**。即付 $X 实际到账 $X/2 的识别额度；这个比例只有作者知道。
+- `admin_grant_quota` `revoke execute from public, anon, authenticated`，只能用 **service_role**（Supabase SQL 控制台 / Supabase MCP）调用——即只有作者本人能发放，无需在 App 里做管理员鉴权。不建在线支付、兑换码等（YAGNI，以后要再加）。
+
+**超额行为**：内置源触发 `quota_exceeded` → 中文提示「识别额度已用完，可在设置里添加你自己的 AI 源」（**不提「付费/购买/比例」字样**）。自定义源完全不受影响。
+
+**展示**：设置页内置源区块显示「已用 $x.xx / $y.yy」进度条，其中 `y = (FREE_MICRO + granted_micro)/1e6`。**不显示免费/付费拆分，不显示比例，不显示任何购买入口。**
 
 > 说明：成本是**估算**（按官方 token 单价），不是 Anthropic 账单的精确值；对「给点免费额度然后让用户自付」这个目的足够。先用后检查会有极小超支窗口（一次调用的量），可接受。
 
@@ -148,14 +156,15 @@ type ProviderDef = {
   - 内置源：调用前 `ai_quota_check`（超额 → `quota_exceeded`）；保留现有 `ai_rate_check`（每分钟 10 次）对所有源生效。
   - 调用后：内置源用返回的 usage 调 `ai_quota_add`。
   - `AiContext` 从 `{ sb, userId, model }` 改为 `{ sb, userId, source }`。
-- `src/lib/ai/errors.ts` 增错误码 `quota_exceeded`：status 402，中文「内置免费额度已用完，请在设置里添加你自己的 AI 源」。`no_key` 文案在「内置没配 env 且无自定义源」时沿用。
+- `src/lib/ai/errors.ts` 增错误码 `quota_exceeded`：status 402，中文「识别额度已用完，可在设置里添加你自己的 AI 源」（不含付费/比例字样）。`no_key` 文案在「内置没配 env 且无自定义源」时沿用。
 
 ## 数据库迁移 `supabase/migrations/0007_ai_sources.sql`
 
 1. `create table ai_sources ...` + RLS 四条策略。
-2. `create table ai_usage ...` + RLS select 自己；`revoke` 普通写。
+2. `create table ai_quota(owner_id pk, used_micro bigint default 0, granted_micro bigint default 0, updated_at)` + RLS select 自己；不开放 insert/update（只经 RPC）。**命名避开既有 `ai_usage`。**
 3. `alter table profiles add column default_source text`（迁移现有行 `= 'builtin:' || default_model`）。
-4. `ai_quota_check()` / `ai_quota_add(bigint)` security-definer 函数；`revoke execute ... from public, anon`（仿 0004 对 `ai_rate_check` 的加固）。
+4. `ai_quota_check()`（`used >= FREE_MICRO + granted` 抛 `quota_exceeded`）/ `ai_quota_add(bigint)`（累加 `used_micro`）security-definer；`revoke execute ... from public, anon`。
+5. `admin_grant_quota(p_user uuid, p_paid_micro bigint)` security-definer：`granted_micro += floor(p_paid_micro * 0.5)`（比例写死）；`revoke execute ... from public, anon, authenticated`（仅 service_role 可调）。
 
 `src/lib/db/types.ts` 同步：新增 `AiSource` 类型、`Profile.default_source`。
 

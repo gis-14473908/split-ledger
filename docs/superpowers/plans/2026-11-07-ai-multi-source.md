@@ -28,6 +28,7 @@
 - **非法/伪造 source key**：`parseSourceKey` 对未知前缀、空串、`custom:<非本人 uuid>` 回退或拒绝，绝不读到他人的 `ai_sources` 行（Task 1 测解析，Task 4 测 resolve 校验 `owner_id`）。
 - **非视觉模型跑图片任务**：openai 适配遇上游拒答/空输出映射成 `refused`/`invalid_output` 中文提示，不 500（Task 3 测）。
 - **key 泄露面**：UI 列表与读取不含 `api_key` 明文列（Task 5 测断言 select 不含 `api_key`）。
+- **加价比例/付费字样不外泄**：`PAID_RATIO`(0.5) 只在 `admin_grant_quota` 函数体内；前端、路由响应、错误文案、额度条均无「付费/购买/比例/免费额度」等字样（Task 2 SQL 自检 + Task 6 人工核对 + Task 4 错误文案测试）。
 
 ---
 
@@ -85,20 +86,21 @@ expect(PRICES.sonnet.outMicroPerTok).toBeGreaterThan(0);
 - Produces（TS 类型，供后续任务）:
   - `type AiSource = { id: string; owner_id: string; label: string; provider: string; model: string; key_last4: string; created_at: string }`（**注意 `api_key` 不进 TS 行类型，避免误 select**）
   - `Profile` 增 `default_source: string | null`
-- Produces（SQL，供 Task 4/5 调用）: RPC `ai_quota_check()`、`ai_quota_add(p_micro bigint)`。
+- Produces（SQL，供 Task 4/5 调用）: RPC `ai_quota_check()`、`ai_quota_add(p_micro bigint)`；作者发放额度用 `admin_grant_quota(p_user uuid, p_paid_micro bigint)`（仅 service_role，含写死的 0.5 比例）。
 
 - [ ] **Step 1: 写迁移 `0007_ai_sources.sql`**，包含：
   - `create table public.ai_sources (id uuid primary key default gen_random_uuid(), owner_id uuid not null references auth.users on delete cascade, label text not null, provider text not null, model text not null, api_key text not null, key_last4 text not null, created_at timestamptz not null default now());`
-  - `create table public.ai_quota (owner_id uuid primary key references auth.users on delete cascade, used_micro bigint not null default 0, updated_at timestamptz not null default now());`
+  - `create table public.ai_quota (owner_id uuid primary key references auth.users on delete cascade, used_micro bigint not null default 0, granted_micro bigint not null default 0, updated_at timestamptz not null default now());`（名字避开既有 `ai_usage`）
   - `alter table public.profiles add column default_source text;` 并 `update public.profiles set default_source = 'builtin:' || default_model where default_source is null;`
   - `ai_sources` 开 RLS + 四条 own 策略（select/insert/update/delete `owner_id = auth.uid()`，insert 另加 `with check`）。
   - `ai_quota` 开 RLS + select own 策略；不开放 insert/update（只经 RPC）。
-  - `create function public.ai_quota_check() returns void language plpgsql security definer set search_path = public as $$ declare uid uuid := public.require_user(); begin if (select used_micro from ai_quota where owner_id = uid) >= 1000000 then raise exception 'quota_exceeded'; end if; end $$;`
-  - `create function public.ai_quota_add(p_micro bigint) returns void language plpgsql security definer set search_path = public as $$ declare uid uuid := public.require_user(); begin insert into ai_quota (owner_id, used_micro, updated_at) values (uid, greatest(p_micro,0), now()) on conflict (owner_id) do update set used_micro = ai_quota.used_micro + greatest(p_micro,0), updated_at = now(); end $$;`
-  - `revoke execute on function public.ai_quota_check() from public, anon;` 和 `revoke execute on function public.ai_quota_add(bigint) from public, anon;`（仿 `0004_hardening.sql`）。
+  - `ai_quota_check()`（security definer）：`if (select used_micro - granted_micro from ai_quota where owner_id = uid) >= 1000000 then raise exception 'quota_exceeded'; end if;`（即 `used >= FREE_MICRO(1_000_000) + granted`；无行视为 0，不抛）。
+  - `ai_quota_add(p_micro bigint)`（security definer）：upsert 累加 `used_micro += greatest(p_micro,0)`，`on conflict (owner_id)`。
+  - `admin_grant_quota(p_user uuid, p_paid_micro bigint)`（security definer）：upsert `granted_micro += floor(greatest(p_paid_micro,0) * 0.5)` 到 `p_user` 行（**比例 0.5 写死在函数体内，不参数化、不出现在别处**）。
+  - revokes：`ai_quota_check()`/`ai_quota_add(bigint)` `from public, anon`；`admin_grant_quota(uuid,bigint)` `from public, anon, authenticated`（仅 service_role 可调）。
 - [ ] **Step 2: 同步 `src/lib/db/types.ts`** — 加 `AiSource` 类型与 `Profile.default_source`。
 - [ ] **Step 3: Run `npm run typecheck`** — Expected: PASS（类型自洽）。
-- [ ] **Step 4: SQL 自检** — 人工通读迁移：表、RLS、RPC、revoke 齐全；`ai_quota` 命名未与既有 `ai_usage` 冲突。（线上执行由用户在 Supabase 控制台完成，不在本任务。）
+- [ ] **Step 4: SQL 自检** — 人工通读迁移：表、RLS、RPC、revoke 齐全；`ai_quota` 命名未与既有 `ai_usage` 冲突；`admin_grant_quota` 已对 `authenticated` 撤销执行权（只 service_role 可调），0.5 比例写死在函数体内。（线上执行由用户在 Supabase 控制台完成，不在本任务。）
 - [ ] **Step 5: Commit** — `feat: add ai_sources/ai_quota tables, default_source column and quota RPCs`
 
 ---
@@ -164,13 +166,13 @@ expect(parseCallCustom.betas).toBeUndefined();
   - `resolveSource(sb, userId, key: string | undefined): Promise<ResolvedSource>`（in `sources.ts`）：`parseSourceKey` 解析；builtin → env `ANTHROPIC_API_KEY` + `MODEL_IDS[model]` + `allowServerFallback = model!=="haiku"` + `label = MODEL_LABEL[model]`；custom → `sb.from("ai_sources").select("*").eq("id",id).eq("owner_id",userId).single()`（查不到则 `AiError("bad_request")`），`providerById(provider)` 给 `apiFormat`/`baseURL`，`label = row.label`。
   - `AiContext = { sb; userId; source: ResolvedSource }`（替换原 `model`）。
   - `costMicro(model: ModelKey, usage): number`（in `sources.ts`，用 `PRICES`）。
-  - `errors.ts`：`AiErrorCode` 加 `"quota_exceeded"`；`AI_ERROR_STATUS.quota_exceeded = 402`；`AI_ERROR_MESSAGE.quota_exceeded = "内置免费额度已用完，请在设置里添加你自己的 AI 源"`。
+  - `errors.ts`：`AiErrorCode` 加 `"quota_exceeded"`；`AI_ERROR_STATUS.quota_exceeded = 402`；`AI_ERROR_MESSAGE.quota_exceeded = "识别额度已用完，可在设置里添加你自己的 AI 源"`（不含付费/比例字样）。
 
 - [ ] **Step 1: Write failing tests** — 在 `ai-routes.test.ts` 加（`fakeSupabase` 扩 `defaultSource`、`ai_sources.single`、`rpc` 记录名字）:
 
 ```ts
 // builtin 超额 → 402 + 中文；rpc ai_quota_check 以错误 "quota_exceeded" 抛
-it("blocks builtin source when free quota is used up"): status 402, error "内置免费额度已用完，请在设置里添加你自己的 AI 源"
+it("blocks builtin source when quota is used up"): status 402, error "识别额度已用完，可在设置里添加你自己的 AI 源"
 // builtin 成功后累加：rpcCalls 含 { fn:"ai_quota_check" } 且之后 { fn:"ai_quota_add", args:{ p_micro: >0 } }
 // custom 源：body.source="custom:<uuid>"，resolve 到 ai_sources 行；rpcCalls 不含 ai_quota_check / ai_quota_add；仍含 ai_rate_check
 // 伪造 custom（single 返回 {data:null}）→ 400
@@ -201,7 +203,7 @@ it("blocks builtin source when free quota is used up"): status 402, error "内�
   - `listSources(sb): Promise<AiSource[]>` — `select("id, owner_id, label, provider, model, key_last4, created_at")`（**显式列，不含 `api_key`**）`.order("created_at")`。
   - `addSource(sb, userId, s: { label: string; provider: string; model: string; apiKey: string }): Promise<void>` — insert `{...s(去掉 apiKey), owner_id: userId, api_key: s.apiKey.trim(), key_last4: s.apiKey.trim().slice(-4) }`。
   - `deleteSource(sb, id: string): Promise<void>`。
-  - `readQuota(sb): Promise<number>` — 读 `ai_quota.used_micro`（无行返回 0）。
+  - `readQuota(sb): Promise<{ usedMicro: number; grantedMicro: number }>` — 读 `ai_quota.used_micro`/`granted_micro`（无行返回 `{usedMicro:0, grantedMicro:0}`）。总额度 = `FREE_MICRO + grantedMicro`。
   - `settings.ts`：`updateSettings` 的 patch 增 `defaultSource?: string` → 写 `default_source`。
 
 - [ ] **Step 1: Write failing tests** — `tests/unit/sources-data.test.ts`（`recordingSupabase`）:
@@ -212,7 +214,7 @@ await listSources(sb); const sel = sb.calls.find(c=>c.op==="select"); expect(Str
 // addSource 写入 key_last4 = 后四位，且 api_key 原文
 await addSource(sb, USER, { label:"我的Q", provider:"qwen", model:"qwen3-vl-plus", apiKey:"sk-abcd1234" });
 const ins = sb.calls.find(c=>c.op==="insert"); expect(ins.args[0]).toMatchObject({ owner_id: USER, key_last4: "1234", api_key: "sk-abcd1234" });
-// readQuota 无行返回 0
+// readQuota 无行返回 { usedMicro: 0, grantedMicro: 0 }
 // updateSettings 写 default_source
 ```
 
@@ -235,7 +237,7 @@ const ins = sb.calls.find(c=>c.op==="insert"); expect(ins.args[0]).toMatchObject
 - Produces: 设置页新增「AI 源」区块；`profiles.default_source` 的单选写入。
 
 - [ ] **Step 1: 实现 `SourceSheet.tsx`** — 底部抽屉表单：① `<select>` 供应商（`PROVIDERS`）② 模型：`providerById(provider).suggestedModels` 下拉 + 「其他」切到手填 `<input>`（旁注「请填支持图片识别的模型」）③ key `<input type="password">` ④ label `<input>`。保存调 `addSource`，`busy` 防重复，成功回调刷新列表。参考 `BillSheet`/`SplitSheet` 的抽屉与 z-index。
-- [ ] **Step 2: 改 `settings/page.tsx`** — 新「AI 源」区块：内置三档单选（复用现有「默认识别模型」块，语义=内置源用哪档）+ 额度条「已用 $x.xx / $1.00」（`readQuota()/1e6`）；自定义源列表（label + 供应商 label + `••••{key_last4}` + 删除点两次确认）；「默认源」单选（内置档 / 各自定义源）→ `updateSettings({ defaultSource })`；「添加源」按钮开 `SourceSheet`。
+- [ ] **Step 2: 改 `settings/page.tsx`** — 新「AI 源」区块：内置三档单选（复用现有「默认识别模型」块，语义=内置源用哪档）+ 额度条「已用 $x.xx / $y.yy」其中 `y = (FREE_MICRO + grantedMicro)/1e6`、`x = usedMicro/1e6`（**不显示免费/付费拆分、不显示比例、无购买入口**）；自定义源列表（label + 供应商 label + `••••{key_last4}` + 删除点两次确认）；「默认源」单选（内置档 / 各自定义源）→ `updateSettings({ defaultSource })`；「添加源」按钮开 `SourceSheet`。
 - [ ] **Step 3: Verify** — `npm run typecheck` PASS；`npm run dev` 手动过一遍：添加源、删除、切默认、额度条显示（可用 `AI_MOCK=1`）。若加了组件测试则 `npx vitest run tests/unit/source-sheet.test.tsx` PASS。
 - [ ] **Step 4: Commit** — `feat: settings UI for managing AI sources and free-quota meter`
 
@@ -272,5 +274,5 @@ const ins = sb.calls.find(c=>c.op==="insert"); expect(ins.args[0]).toMatchObject
 - [ ] **Step 1:** `npm run typecheck` PASS
 - [ ] **Step 2:** `npm test` PASS
 - [ ] **Step 3:** `npm run build` PASS
-- [ ] **Step 4:** 更新 `CLAUDE.md`：RPC 列表加 `ai_quota_check`/`ai_quota_add`；「已知问题」记「api_key 明文存储」「成本为估算、先用后检查有极小超支窗口」；供应商端点/模型 id 落地核对结果。
+- [ ] **Step 4:** 更新 `CLAUDE.md`：RPC 列表加 `ai_quota_check`/`ai_quota_add`/`admin_grant_quota`；记录作者发放额度的用法（在 Supabase SQL 控制台用 service_role 调 `select admin_grant_quota('<user-uuid>', <付款额 micro-USD>)`，比例 0.5 已内置）；「已知问题」记「api_key 明文存储」「成本为估算、先用后检查有极小超支窗口」；供应商端点/模型 id 落地核对结果。
 - [ ] **Step 5: Commit** — `docs: note multi-source AI setup in CLAUDE.md`
