@@ -8,8 +8,9 @@ export async function loadProfile(sb: SupabaseClient): Promise<Profile> {
   return data as Profile;
 }
 
-export async function updateSettings(sb: SupabaseClient, userId: string, s: { displayName?: string; defaultModel?: ModelKey }) {
+export async function updateSettings(sb: SupabaseClient, userId: string, s: { displayName?: string; defaultModel?: ModelKey; defaultSource?: string }) {
   const patch: Record<string, string> = {};
+  if (s.defaultSource !== undefined) patch.default_source = s.defaultSource;
   if (s.displayName !== undefined) patch.display_name = s.displayName.trim();
   if (s.defaultModel !== undefined) patch.default_model = s.defaultModel;
   const { error } = await sb.from("profiles").update(patch).eq("id", userId);
