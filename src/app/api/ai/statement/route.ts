@@ -7,10 +7,10 @@ import { StatementOutput, StatementResult, toParsedTransactions } from "@/lib/ai
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  return withAi(req, "statement", ownImagePath, async ({ sb, model }, imagePath) => {
+  return withAi(req, "statement", ownImagePath, async ({ sb, source }, imagePath) => {
     const image = await downloadImage(sb, imagePath);
-    const raw = await runStructured({
-      model,
+    const { parsed: raw, usage } = await runStructured({
+      source,
       system: statementPrompt(new Date().toISOString().slice(0, 10)),
       content: [image, { type: "text", text: "列出这张截图里的所有交易。" }],
       schema: StatementOutput,
@@ -18,6 +18,6 @@ export async function POST(req: Request) {
     });
     const checked = StatementResult.safeParse(raw);
     if (!checked.success) throw new AiError("invalid_output");
-    return { model, transactions: toParsedTransactions(checked.data) };
+    return { json: { source: source.label, transactions: toParsedTransactions(checked.data) }, usage };
   });
 }
