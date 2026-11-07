@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AddContactForm } from "@/components/contacts/AddContactForm";
+import { SourceSheet } from "@/components/settings/SourceSheet";
+import { providerById } from "@/lib/ai/catalog";
 import { MODEL_KEYS, MODEL_LABEL } from "@/lib/ai/models";
-import type { Contact, ModelKey, Profile } from "@/lib/db/types";
+import type { AiSource, Contact, ModelKey, Profile } from "@/lib/db/types";
+import { deleteSource, listSources, readQuota } from "@/lib/data/sources";
 import { loadProfile, updateSettings } from "@/lib/data/settings";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
@@ -24,6 +27,15 @@ export default function SettingsPage() {
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sources, setSources] = useState<AiSource[]>([]);
+  const [quota, setQuota] = useState<{ usedMicro: number; grantedMicro: number } | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
+
+  const refreshSources = useCallback(() => {
+    listSources(sb).then(setSources).catch((e) => setError((e as Error).message));
+  }, [sb]);
 
   useEffect(() => {
     loadProfile(sb)
@@ -36,18 +48,47 @@ export default function SettingsPage() {
       .select("*")
       .order("created_at")
       .then(({ data }) => setContacts((data ?? []) as Contact[]));
-  }, [sb]);
+    refreshSources();
+    readQuota(sb).then(setQuota).catch((e) => setError((e as Error).message));
+  }, [sb, refreshSources]);
 
-  async function save(patch: { displayName?: string; defaultModel?: ModelKey }, message: string) {
+  async function save(patch: { displayName?: string; defaultModel?: ModelKey; defaultSource?: string }, message: string) {
     if (!profile) return;
     setError(null);
     try {
       await updateSettings(sb, profile.id, patch);
-      setProfile({ ...profile, ...(patch.displayName ? { display_name: patch.displayName } : {}), ...(patch.defaultModel ? { default_model: patch.defaultModel } : {}) });
+      setProfile({ ...profile, ...(patch.displayName ? { display_name: patch.displayName } : {}), ...(patch.defaultModel ? { default_model: patch.defaultModel } : {}), ...(patch.defaultSource ? { default_source: patch.defaultSource } : {}) });
       setSaved(message);
       setTimeout(() => setSaved(null), 1500);
     } catch (e) {
       setError(`保存失败：${(e as Error).message}`);
+    }
+  }
+
+  const currentSource = profile ? (profile.default_source ?? `builtin:${profile.default_model}`) : null;
+  const sourceOptions = [
+    ...MODEL_KEYS.map((m) => ({ value: `builtin:${m}`, label: `内置 · ${MODEL_LABEL[m]}` })),
+    ...sources.map((s) => ({ value: `custom:${s.id}`, label: s.label })),
+  ];
+  const total = quota ? (1_000_000 + quota.grantedMicro) / 1e6 : 0;
+  const used = quota ? quota.usedMicro / 1e6 : 0;
+  const pct = quota && total > 0 ? Math.min(100, (used / total) * 100) : 0;
+
+  async function removeSource(id: string) {
+    if (confirmDel !== id) return setConfirmDel(id);
+    setDelBusy(true);
+    setError(null);
+    try {
+      await deleteSource(sb, id);
+      if (profile && profile.default_source === `custom:${id}`) {
+        await save({ defaultSource: `builtin:${profile.default_model}` }, "默认源已切回内置");
+      }
+      setConfirmDel(null);
+      refreshSources();
+    } catch (e) {
+      setError(`删除失败：${(e as Error).message}`);
+    } finally {
+      setDelBusy(false);
     }
   }
 
@@ -74,7 +115,7 @@ export default function SettingsPage() {
       </section>
 
       <section className="card flex flex-col gap-2 p-4">
-        <h2 className="text-sm text-muted">默认识别模型</h2>
+        <h2 className="text-sm text-muted">内置源用哪档</h2>
         {MODEL_KEYS.map((m) => (
           <label key={m} className={`flex cursor-pointer items-start gap-3 rounded-xl p-2 ${profile?.default_model === m ? "bg-accent-soft" : ""}`}>
             <input
@@ -93,6 +134,52 @@ export default function SettingsPage() {
         ))}
         <p className="text-xs text-muted">识别不准时，在识别结果页可以随时用 Opus 5.5 重新识别。</p>
       </section>
+
+      <section className="card flex flex-col gap-3 p-4">
+        <h2 className="text-sm text-muted">AI 源</h2>
+        {quota && (
+          <div className="flex flex-col gap-1">
+            <p className="num text-sm">已用 ${used.toFixed(2)} / ${total.toFixed(2)}</p>
+            <div className="h-2 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label="额度">
+              <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        )}
+
+        {sources.length > 0 && (
+          <ul className="divide-y divide-line">
+            {sources.map((s) => (
+              <li key={s.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <b className="block truncate">{s.label}</b>
+                  <span className="block truncate text-xs text-muted">{providerById(s.provider)?.label ?? s.provider} · <span className="num">••••{s.key_last4}</span></span>
+                </span>
+                <button className="shrink-0 text-xs text-danger" disabled={delBusy} onClick={() => removeSource(s.id)}>
+                  {confirmDel === s.id ? "确认删除？" : "删除"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <button className="btn py-2 text-sm" onClick={() => setSheetOpen(true)}>+ 添加源</button>
+
+        <h3 className="text-sm text-muted">默认源</h3>
+        {sourceOptions.map((o) => (
+          <label key={o.value} className={`flex cursor-pointer items-center gap-3 rounded-xl p-2 ${currentSource === o.value ? "bg-accent-soft" : ""}`}>
+            <input
+              type="radio"
+              name="default-source"
+              className="accent-[var(--accent)]"
+              checked={currentSource === o.value}
+              onChange={() => save({ defaultSource: o.value }, `默认源已改为 ${o.label}`)}
+            />
+            <span>{o.label}</span>
+          </label>
+        ))}
+      </section>
+
+      <SourceSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSaved={refreshSources} />
 
       <section className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
