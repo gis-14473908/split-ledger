@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ModelKey } from "../ai/models";
 import type { ImportedTransaction } from "../ai/schemas";
 import { dedupeKey } from "../dedupe";
 
@@ -25,11 +24,11 @@ export async function existingDedupeKeys(sb: SupabaseClient, keys: string[]): Pr
 export async function saveImport(
   sb: SupabaseClient,
   rows: ImportedTransaction[],
-  meta: { kind: "screenshot" | "csv"; filePaths: string[]; model: ModelKey },
+  meta: { kind: "screenshot" | "csv"; filePaths: string[]; sourceLabel: string },
 ): Promise<number> {
   const { data: imp, error: impError } = await sb
     .from("imports")
-    .insert({ kind: meta.kind, file_paths: meta.filePaths, model_used: meta.model })
+    .insert({ kind: meta.kind, file_paths: meta.filePaths, model_used: meta.sourceLabel })
     .select("id")
     .single();
   if (impError || !imp) throw new Error(impError?.message ?? "import failed");
