@@ -60,8 +60,11 @@ type ProviderDef = {
 | Google Gemini | `gemini` | openai | `https://generativelanguage.googleapis.com/v1beta/openai/` | 当前 Gemini Flash/Pro 视觉模型 |
 | 阿里通义 Qwen-VL | `qwen` | openai | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`（国际）/ `https://dashscope.aliyuncs.com/compatible-mode/v1`（国内） | `qwen3-vl-plus` 等 |
 | 智谱 GLM-V | `zhipu` | openai | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.6v` 等 |
+| 月之暗面 Kimi | `moonshot` | openai | `https://api.moonshot.cn/v1`（国内）/ `https://api.moonshot.ai/v1`（国际） | Kimi 视觉模型（落地时确认 id） |
+| 字节豆包 | `doubao` | openai | `https://ark.cn-beijing.volces.com/api/v3` | `doubao-*-vision` 或接入点 id（落地时确认） |
 
-> 月之暗面 Kimi、字节豆包暂不纳入初版（YAGNI），后续加一个供应商 = 往目录加一行 + 确认端点，不改适配层。
+> 初版共 7 家供应商。再加一个供应商 = 往目录加一行 + 确认端点，不改适配层。
+> 豆包（火山方舟）历史上用「接入点 id（ep-xxxx）」而非模型名调用，现也支持直接填模型名；落地时确认，`model` 字段两种都能填（手填兜底）。
 
 **视觉能力**：下拉里只列支持图片输入的推荐模型。用户手填模型名属于「自担」——若填了不支持视觉的模型，statement/receipt 会被上游拒绝或返回空，映射成现有的 `refused`/`invalid_output` 中文提示。界面在手填框旁给一句提示「请填支持图片识别的模型」。
 
