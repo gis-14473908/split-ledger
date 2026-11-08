@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/server", () => ({ createServerSupabase: vi.fn() }));
 vi.mock("@/lib/ai/run", () => ({ runStructured: vi.fn() }));
 
+import { costMicro } from "@/lib/ai/sources";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { runStructured } from "@/lib/ai/run";
 import { POST as statement } from "@/app/api/ai/statement/route";
@@ -23,6 +24,7 @@ function fakeSupabase(
   } = {},
 ) {
   const user = opts.user === undefined ? { id: USER } : opts.user;
+  const eqCalls: [string, unknown][] = [];
   const rpcCalls: { fn: string; args?: Record<string, unknown> }[] = [];
   const aiSource = opts.aiSource ?? {
     data: { id: CUSTOM_ID, owner_id: USER, label: "My GPT", provider: "openai", model: "gpt-5", api_key: "sk-x" },
@@ -30,13 +32,16 @@ function fakeSupabase(
   };
   return {
     rpcCalls,
+    eqCalls,
     auth: { getUser: async () => ({ data: { user }, error: null }) },
     from: (table: string) => ({
       select: () => ({
-        eq: () =>
-          table === "ai_sources"
-            ? { eq: () => ({ single: async () => aiSource }) }
-            : { single: async () => ({ data: { default_source: opts.defaultSource ?? "builtin:sonnet" }, error: null }) },
+        eq: (col: string, val: unknown) => {
+          if (table === "ai_sources") eqCalls.push([col, val]);
+          return table === "ai_sources"
+            ? { eq: (col2: string, val2: unknown) => { eqCalls.push([col2, val2]); return { single: async () => aiSource }; } }
+            : { single: async () => ({ data: { default_source: opts.defaultSource ?? "builtin:sonnet" }, error: null }) };
+        },
       }),
     }),
     rpc: vi.fn(async (fn: string, args?: Record<string, unknown>) => {
@@ -174,7 +179,8 @@ describe("source resolution and quota", () => {
     expect(names.indexOf("ai_quota_check")).toBeGreaterThanOrEqual(0);
     expect(names.indexOf("ai_quota_add")).toBeGreaterThan(names.indexOf("ai_quota_check"));
     const add = sb.rpcCalls.find((c) => c.fn === "ai_quota_add");
-    expect(add?.args?.p_micro as number).toBeGreaterThan(0);
+    expect(add?.args?.p_micro).toBe(costMicro("opus", usage));
+    expect(add?.args?.p_micro).toBe(5250);
   });
 
   it("uses a custom source without touching the quota", async () => {
@@ -185,6 +191,7 @@ describe("source resolution and quota", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).source).toBe("My GPT");
     const src = vi.mocked(runStructured).mock.calls[0][0].source;
+    expect(sb.eqCalls).toEqual(expect.arrayContaining([["id", CUSTOM_ID], ["owner_id", USER]]));
     expect(src).toMatchObject({ kind: "custom", apiFormat: "openai", model: "gpt-5", allowServerFallback: false });
     const names = sb.rpcCalls.map((c) => c.fn);
     expect(names).toContain("ai_rate_check");

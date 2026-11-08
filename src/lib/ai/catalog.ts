@@ -1,5 +1,7 @@
 import { MODEL_KEYS, type ModelKey } from "./models";
 
+export const FREE_MICRO = 1_000_000; // must match the 1000000 literal in migration 0007 ai_quota_check
+
 export type ApiFormat = "anthropic" | "openai";
 
 export type ProviderDef = {

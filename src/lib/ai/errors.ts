@@ -25,7 +25,7 @@ export const AI_ERROR_MESSAGE: Record<AiErrorCode, string> = {
   rate_limited: "操作太频繁，请一分钟后再试",
   no_key: "还没有配置 AI 密钥",
   refused: "AI 没有处理这张图片，请换一张试试",
-  invalid_output: "没能识别出有效内容，请换一张更清楚的图片，或用 Opus 5.5 重试",
+  invalid_output: "没能识别出有效内容，请换一张更清楚的图片，或换一个 AI 源重试",
   quota_exceeded: "识别额度已用完，可在设置里添加你自己的 AI 源",
   upstream: "AI 服务暂时不可用，请稍后再试",
 };

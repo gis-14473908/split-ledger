@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AddContactForm } from "@/components/contacts/AddContactForm";
 import { SourceSheet } from "@/components/settings/SourceSheet";
-import { providerById } from "@/lib/ai/catalog";
+import { FREE_MICRO, providerById } from "@/lib/ai/catalog";
 import { MODEL_KEYS, MODEL_LABEL } from "@/lib/ai/models";
 import type { AiSource, Contact, ModelKey, Profile } from "@/lib/db/types";
 import { deleteSource, listSources, readQuota } from "@/lib/data/sources";
@@ -70,7 +70,7 @@ export default function SettingsPage() {
     ...MODEL_KEYS.map((m) => ({ value: `builtin:${m}`, label: `内置 · ${MODEL_LABEL[m]}` })),
     ...sources.map((s) => ({ value: `custom:${s.id}`, label: s.label })),
   ];
-  const total = quota ? (1_000_000 + quota.grantedMicro) / 1e6 : 0;
+  const total = quota ? (FREE_MICRO + quota.grantedMicro) / 1e6 : 0;
   const used = quota ? quota.usedMicro / 1e6 : 0;
   const pct = quota && total > 0 ? Math.min(100, (used / total) * 100) : 0;
 
@@ -132,7 +132,7 @@ export default function SettingsPage() {
             </span>
           </label>
         ))}
-        <p className="text-xs text-muted">识别不准时，在识别结果页可以随时用 Opus 5.5 重新识别。</p>
+        <p className="text-xs text-muted">识别不准时，在识别结果页可以随时换一个 AI 源重新识别。</p>
       </section>
 
       <section className="card flex flex-col gap-3 p-4">
