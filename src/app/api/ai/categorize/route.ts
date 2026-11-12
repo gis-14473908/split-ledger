@@ -17,10 +17,10 @@ function validate(body: Record<string, unknown>): Item[] | null {
 }
 
 export async function POST(req: Request) {
-  return withAi(req, "categorize", validate, async ({ model }, items) => {
+  return withAi(req, "categorize", validate, async ({ source }, items) => {
     const lines = items.map((i, n) => `${n + 1}. ${i.merchant} ${formatPence(i.amountPence)}`).join("\n");
-    const r = await runStructured({
-      model,
+    const { parsed: r, usage } = await runStructured({
+      source,
       system: categorizePrompt(),
       content: [{ type: "text", text: lines }],
       schema: CategorizeOutput,
@@ -28,6 +28,6 @@ export async function POST(req: Request) {
       mockCount: items.length,
     });
     if (r.categories.length !== items.length) throw new AiError("invalid_output");
-    return { categories: r.categories };
+    return { json: { categories: r.categories }, usage };
   });
 }

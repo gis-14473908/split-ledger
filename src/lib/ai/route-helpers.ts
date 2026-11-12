@@ -2,9 +2,13 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "../supabase/server";
 import { AI_ERROR_MESSAGE, AI_ERROR_STATUS, AiError } from "./errors";
-import { isModelKey, type ModelKey } from "./models";
+import type { ResolvedSource } from "./run";
+import { costMicro, parseOrDefault, resolveSource } from "./sources";
 
-export type AiContext = { sb: SupabaseClient; userId: string; model: ModelKey };
+export type AiContext = { sb: SupabaseClient; userId: string; source: ResolvedSource };
+
+export type AiUsage = { inputTokens: number; outputTokens: number };
+export type AiResult = { json: unknown; usage: AiUsage };
 
 type Body = Record<string, unknown>;
 
@@ -16,7 +20,7 @@ export async function withAi<I>(
   req: Request,
   kind: string,
   validate: (body: Body, userId: string) => I | null,
-  run: (ctx: AiContext, input: I) => Promise<unknown>,
+  run: (ctx: AiContext, input: I) => Promise<AiResult>,
 ): Promise<Response> {
   try {
     const sb = (await createServerSupabase()) as unknown as SupabaseClient;
@@ -34,20 +38,34 @@ export async function withAi<I>(
     const input = validate(body ?? {}, user.id);
     if (input === null) throw new AiError("bad_request");
 
-    if (!process.env.ANTHROPIC_API_KEY && process.env.AI_MOCK !== "1") throw new AiError("no_key");
+    const { data: profile } = await sb.from("profiles").select("default_source").eq("id", user.id).single();
+    const key =
+      (typeof body.source === "string" ? body.source : undefined) ?? profile?.default_source ?? undefined;
+    const source = await resolveSource(sb, user.id, key);
 
-    let model: ModelKey;
-    if (isModelKey(body.model)) {
-      model = body.model;
-    } else {
-      const { data } = await sb.from("profiles").select("default_model").eq("id", user.id).single();
-      model = isModelKey(data?.default_model) ? data.default_model : "sonnet";
-    }
+    if (source.kind === "builtin" && !source.apiKey && process.env.AI_MOCK !== "1") throw new AiError("no_key");
 
-    const { error } = await sb.rpc("ai_rate_check", { p_kind: kind, p_model: model });
+    const { error } = await sb.rpc("ai_rate_check", { p_kind: kind, p_model: source.label });
     if (error) throw new AiError(error.message.includes("rate_limited") ? "rate_limited" : "upstream");
 
-    return Response.json(await run({ sb, userId: user.id, model }, input));
+    if (source.kind === "builtin") {
+      const { error: qErr } = await sb.rpc("ai_quota_check");
+      if (qErr) throw new AiError(qErr.message.includes("quota_exceeded") ? "quota_exceeded" : "upstream");
+    }
+
+    const result = await run({ sb, userId: user.id, source }, input);
+
+    // Only the free built-in sources count against the quota. The ModelKey is
+    // recovered by re-parsing the same key resolveSource used.
+    if (source.kind === "builtin") {
+      const parsed = parseOrDefault(key);
+      if (parsed.kind === "builtin") {
+        const { error: addErr } = await sb.rpc("ai_quota_add", { p_micro: costMicro(parsed.model, result.usage) });
+        if (addErr) console.error("ai_quota_add failed", addErr);
+      }
+    }
+
+    return Response.json(result.json);
   } catch (e) {
     if (e instanceof AiError) {
       return Response.json({ error: AI_ERROR_MESSAGE[e.code] }, { status: AI_ERROR_STATUS[e.code] });

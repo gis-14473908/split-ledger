@@ -20,10 +20,11 @@ it("writes the import first, then its transactions with dedupe keys", async () =
     { ...tx(), status: "pending" as const },
     { ...tx({ amountPence: -500, merchantRaw: "REFUND" }), status: "transfer" as const },
   ];
-  const n = await saveImport(sb as never, rows, { kind: "screenshot", filePaths: ["p1"], model: "sonnet" });
+  const n = await saveImport(sb as never, rows, { kind: "screenshot", filePaths: ["p1"], sourceLabel: "我的 GPT" });
   expect(n).toBe(2);
   const inserts = sb.calls.filter((c) => c.op === "insert");
   expect(inserts.map((c) => c.table)).toEqual(["imports", "transactions"]);
+  expect(inserts[0].args[0]).toMatchObject({ model_used: "我的 GPT" });
   const txRows = inserts[1].args[0] as Record<string, unknown>[];
   expect(txRows[0]).toMatchObject({
     import_id: "imp-1",
@@ -44,7 +45,7 @@ it("looks up which dedupe keys already exist", async () => {
 
 it("records CSV imports with source csv", async () => {
   const sb = recordingSupabase({ "imports.single": { data: { id: "imp-2" }, error: null } });
-  await saveImport(sb as never, [{ ...tx(), status: "pending" as const }], { kind: "csv", filePaths: [], model: "sonnet" });
+  await saveImport(sb as never, [{ ...tx(), status: "pending" as const }], { kind: "csv", filePaths: [], sourceLabel: "我的 GPT" });
   const inserts = sb.calls.filter((c) => c.op === "insert");
   expect(inserts[0].args[0]).toMatchObject({ kind: "csv" });
   expect((inserts[1].args[0] as Record<string, unknown>[])[0]).toMatchObject({ source: "csv" });

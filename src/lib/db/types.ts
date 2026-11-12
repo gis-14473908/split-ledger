@@ -10,6 +10,18 @@ export type Profile = {
   id: string;
   display_name: string;
   default_model: ModelKey;
+  default_source: string | null;
+  created_at: string;
+};
+
+// api_key is deliberately absent: it must never be selected to the client.
+export type AiSource = {
+  id: string;
+  owner_id: string;
+  label: string;
+  provider: string;
+  model: string;
+  key_last4: string;
   created_at: string;
 };
 

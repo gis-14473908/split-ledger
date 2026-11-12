@@ -35,6 +35,7 @@ npm run test:db        # SQL 测试：需要 Linux 上的 Postgres 16，Windows 
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`：Supabase 的 publishable key（可以公开）
 - `ANTHROPIC_API_KEY`：只在服务端用，绝不能出现在浏览器代码里
 - `AI_MOCK=1`：AI 接口返回 `src/lib/ai/mock.ts` 里的固定结果，本地开发和测试用，不花钱
+- 用户可以在「设置」里添加自己的 AI 源（官方供应商：Anthropic / OpenAI / Gemini / 通义 / 智谱 / Kimi / 豆包）。Key 按用户存在 `ai_sources` 表（RLS 隔离）。内置的服务端 `ANTHROPIC_API_KEY` 现在有每人的免费额度。
 
 **注意：本地默认连的就是线上数据库**，本地的增删改会直接影响用户的真实账单。做破坏性测试前先提醒用户，或者另建一个开发用的 Supabase 项目。
 
@@ -46,7 +47,8 @@ npm run test:db        # SQL 测试：需要 Linux 上的 Postgres 16，Windows 
 ## 数据库
 - 迁移在 `supabase/migrations/0001…0006`，按顺序执行。线上没有用 Supabase CLI 管迁移：新迁移写成下一个编号的 SQL 文件提交进仓库，再让用户把 SQL 粘贴到 https://supabase.com/dashboard/project/hmekrexuepbkcckljdad/sql/new 执行（或者用 Supabase MCP 执行，需要用户确认）。
 - 所有表都开了 RLS，只能访问自己的行。需要跨表保证一致性的操作写成 `security definer` 函数，通过 `sb.rpc()` 调用：
-  `set_transaction_split`、`set_transaction_status`、`reset_transaction`、`create_invite`、`accept_invite`、`invite_info`、`shares_owed_by_me`、`counterpart_settlements`、`contact_balances`、`monthly_spend`、`ai_rate_check`（每人每分钟最多 10 次 AI 调用）。
+  `set_transaction_split`、`set_transaction_status`、`reset_transaction`、`create_invite`、`accept_invite`、`invite_info`、`shares_owed_by_me`、`counterpart_settlements`、`contact_balances`、`monthly_spend`、`ai_rate_check`（每人每分钟最多 10 次 AI 调用）、`ai_quota_check`、`ai_quota_add`、`admin_grant_quota`。
+  发放额度：在 Supabase SQL 控制台用 service_role 执行 `select admin_grant_quota('<user-uuid>', <付款额 micro-USD>)`（比例已内置，不在界面出现）。
 - 触发器 `lock_split_transaction`：一笔账有 splits 时，不能直接改 `amount_pence` 或 `status`。要先 `reset_transaction`（清掉分账和小票，回到 pending），或者用 `set_transaction_split` 整体替换。
 - 触发器 `protect_contact_link`：`linked_user_id` 只能通过 `accept_invite` 设置。
 - `src/lib/db/types.ts` 的类型是手写的，改表结构时要同步更新。
@@ -85,4 +87,7 @@ npm run test:db        # SQL 测试：需要 Linux 上的 Postgres 16，Windows 
 - `MonthlySpend` 按 UTC 计算月份。
 - Monzo、Lloyds、招商银行的 CSV 解析器还没做，等用户提供样本。
 - Supabase 自带的邮件服务有频率限制，注册时可能报「email rate limit exceeded」；可以在 Auth 设置里关掉邮箱确认，或者配置自己的 SMTP。
+- `ai_sources.api_key` 明文存储（靠 RLS 行隔离，浏览器端不回显）。
+- AI 成本是按 token 单价估算，先用后检查，有极小超支窗口。
+- 各供应商的推荐模型 id 需在各控制台核对（会过时，界面可手填）。
 - 设计文档：`docs/superpowers/specs/2026-10-25-split-ledger-design.md`；最初的实现计划：`docs/superpowers/plans/2026-10-25-split-ledger.md`。

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { ModelKey } from "@/lib/ai/models";
+import { SourceSelect, useSourcePicker } from "@/components/ai/SourcePicker";
 import { uploadImage } from "@/lib/data/import";
 import { saveReceipt } from "@/lib/data/receipt";
 import type { Contact } from "@/lib/db/types";
@@ -17,17 +17,18 @@ type Line = ReceiptLine & { name: string };
 /** A receipt saved earlier, reopened for editing. */
 export type ExistingReceipt = {
   imagePath: string;
-  model: ModelKey;
+  /** Label of the source that recognised it (display text, from model_used). */
+  sourceLabel?: string;
   lines: { name: string; pricePence: number; includesMe: boolean; contactIds: string[] }[];
 };
 
-type Recognised = { model: ModelKey; merchant: string | null; items: { name: string; pricePence: number }[]; totalPence: number };
+type Recognised = { source: string; merchant: string | null; items: { name: string; pricePence: number }[]; totalPence: number };
 
-async function recognise(imagePath: string, model?: ModelKey): Promise<Recognised> {
+async function recognise(imagePath: string, source?: string): Promise<Recognised> {
   const res = await fetch("/api/ai/receipt", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ imagePath, model }),
+    body: JSON.stringify({ imagePath, source }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body) throw new Error(body?.error ?? "识别超时或失败，请重试");
@@ -54,7 +55,8 @@ export function ReceiptAssigner({
   const sb = createBrowserSupabase();
   const input = useRef<HTMLInputElement>(null);
   const [imagePath, setImagePath] = useState<string | null>(existing?.imagePath ?? null);
-  const [model, setModel] = useState<ModelKey>(existing?.model ?? "sonnet");
+  const { options, sourceKey, setSourceKey } = useSourcePicker(sb);
+  const [sourceLabel, setSourceLabel] = useState<string>(existing?.sourceLabel ?? "");
   const [lines, setLines] = useState<Line[] | null>(() =>
     existing
       ? existing.lines.map((l, n) => ({
@@ -75,14 +77,14 @@ export function ReceiptAssigner({
     ...people.contactIds.map((id) => ({ id, name: contacts.find((c) => c.id === id)?.name ?? "?" })),
   ];
 
-  async function run(path: string, override?: ModelKey) {
+  async function run(path: string) {
     setBusy("正在识别小票…");
     setError(null);
     try {
-      const r = await recognise(path, override);
-      setModel(r.model);
+      const r = await recognise(path, sourceKey);
+      setSourceLabel(r.source);
       if (r.items.length === 0) {
-        setError("没识别出商品，换一张更清楚的照片，或用 Opus 5.5 重试");
+        setError("没识别出商品，换一张更清楚的照片，或换一个 AI 源重试");
         setLines(null);
       } else {
         setLines(r.items.map((i, n) => ({ id: `l${n}-${Date.now()}`, name: i.name, pricePence: i.pricePence, includesMe: false, contactIds: [] })));
@@ -134,7 +136,7 @@ export function ReceiptAssigner({
       await saveReceipt(sb, target.id, {
         imagePath,
         totalPence: itemsTotal,
-        model,
+        sourceLabel,
         lines: lines!,
         names: Object.fromEntries(lines!.map((l) => [l.id, l.name])),
       });
@@ -178,9 +180,12 @@ export function ReceiptAssigner({
                   {o.name}
                 </button>
               ))}
-              <button className="ml-auto text-accent" disabled={!!busy || !imagePath} onClick={() => imagePath && run(imagePath, "opus")}>
-                用 Opus 5.5 重新识别
-              </button>
+              <span className="ml-auto flex items-center gap-2">
+                <SourceSelect options={options} value={sourceKey} onChange={setSourceKey} disabled={!!busy} />
+                <button className="text-accent" disabled={!!busy || !imagePath} onClick={() => imagePath && run(imagePath)}>
+                  重新识别
+                </button>
+              </span>
             </div>
 
             <ul className="flex flex-col gap-2">

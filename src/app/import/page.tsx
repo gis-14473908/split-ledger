@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PreviewList } from "@/components/import/PreviewList";
-import type { ModelKey } from "@/lib/ai/models";
+import { SourceSelect, useSourcePicker } from "@/components/ai/SourcePicker";
 import type { ImportedTransaction } from "@/lib/ai/schemas";
 import { CSV_UNSUPPORTED_MESSAGE, parseCsv } from "@/lib/csv/registry";
 import { existingDedupeKeys, saveImport, uploadImage } from "@/lib/data/import";
@@ -17,7 +17,7 @@ import { createBrowserSupabase } from "@/lib/supabase/browser";
 
 type FileJob = { id: string; name: string; status: "waiting" | "working" | "done" | "error"; error?: string; path?: string; file: File };
 
-const NOTHING_FOUND = "没识别出交易，换一张更清楚的截图，或用 Opus 5.5 重试";
+const NOTHING_FOUND = "没识别出交易，换一张更清楚的截图，或换一个 AI 源重试";
 
 async function categorizeViaApi(items: { merchant: string; amountPence: number }[]): Promise<Category[]> {
   const res = await fetch("/api/ai/categorize", {
@@ -30,15 +30,15 @@ async function categorizeViaApi(items: { merchant: string; amountPence: number }
   return body.categories;
 }
 
-async function recognise(path: string, model?: ModelKey) {
+async function recognise(path: string, source?: string) {
   const res = await fetch("/api/ai/statement", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ imagePath: path, model }),
+    body: JSON.stringify({ imagePath: path, source }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body) throw new Error(body?.error ?? "识别超时或失败，请重试");
-  return body as { model: ModelKey; transactions: ImportedTransaction[] };
+  return body as { source: string; transactions: ImportedTransaction[] };
 }
 
 export default function ImportPage() {
@@ -46,7 +46,8 @@ export default function ImportPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<FileJob[]>([]);
   const [rows, setRows] = useState<PreviewRow[] | null>(null);
-  const [model, setModel] = useState<ModelKey>("sonnet");
+  const { options, sourceKey, setSourceKey } = useSourcePicker(sb);
+  const [sourceLabel, setSourceLabel] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
@@ -61,14 +62,14 @@ export default function ImportPage() {
   const patchJob = (id: string, patch: Partial<FileJob>) =>
     setJobs((js) => js.map((j) => (j.id === id ? { ...j, ...patch } : j)));
 
-  async function runJob(job: FileJob, override?: ModelKey): Promise<ImportedTransaction[] | null> {
+  async function runJob(job: FileJob): Promise<ImportedTransaction[] | null> {
     patchJob(job.id, { status: "working", error: undefined });
     try {
       const path = job.path ?? (await uploadImage(sb, userId!, await compressImage(job.file), "statement"));
       patchJob(job.id, { path });
       job.path = path;
-      const r = await recognise(path, override);
-      setModel(r.model);
+      const r = await recognise(path, sourceKey);
+      setSourceLabel(r.source);
       patchJob(job.id, { status: "done" });
       return r.transactions;
     } catch (e) {
@@ -90,13 +91,13 @@ export default function ImportPage() {
     setMessage(incoming.length === 0 ? NOTHING_FOUND : null);
   }
 
-  async function processJobs(list: FileJob[], override?: ModelKey) {
+  async function processJobs(list: FileJob[], fresh = false) {
     setBusy(true);
     setMessage(null);
     try {
       const incoming: ImportedTransaction[] = [];
-      for (const job of list) incoming.push(...((await runJob(job, override)) ?? []));
-      await addToPreview(incoming, !!override);
+      for (const job of list) incoming.push(...((await runJob(job)) ?? []));
+      await addToPreview(incoming, fresh);
     } catch (e) {
       setMessage(`出错了：${(e as Error).message}，请重试`);
     } finally {
@@ -151,7 +152,7 @@ export default function ImportPage() {
       const n = await saveImport(sb, chosen, {
         kind: fromCsv && !jobs.some((j) => j.path) ? "csv" : "screenshot",
         filePaths: jobs.flatMap((j) => (j.path ? [j.path] : [])),
-        model,
+        sourceLabel,
       });
       setSaved(n);
       setRows(null);
@@ -221,13 +222,16 @@ export default function ImportPage() {
         <section className="flex flex-col gap-3">
           <div className="flex items-baseline justify-between">
             <h2 className="font-bold">识别结果（{rows.length} 笔）</h2>
-            <button
-              className="text-sm text-accent"
-              disabled={busy || jobs.every((j) => !j.path)}
-              onClick={() => processJobs(jobs.filter((j) => j.path), "opus")}
-            >
-              用 Opus 5.5 重新识别
-            </button>
+            <span className="flex items-center gap-2">
+              <SourceSelect options={options} value={sourceKey} onChange={setSourceKey} disabled={busy} />
+              <button
+                className="text-sm text-accent"
+                disabled={busy || jobs.every((j) => !j.path)}
+                onClick={() => processJobs(jobs.filter((j) => j.path), true)}
+              >
+                重新识别
+              </button>
+            </span>
           </div>
           <PreviewList rows={rows} onChange={setRows} />
           <button className="btn btn-primary sticky bottom-20" disabled={busy || included === 0} onClick={save}>

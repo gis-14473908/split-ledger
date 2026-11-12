@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { ReceiptAssigner } from "@/components/review/ReceiptAssigner";
 import { SplitSheet } from "@/components/review/SplitSheet";
-import type { ModelKey } from "@/lib/ai/models";
 import { saveNewSplit, splitPeople, type Bill } from "@/lib/data/bills";
 import { createContact } from "@/lib/data/review";
 import type { Contact } from "@/lib/db/types";
@@ -46,7 +45,7 @@ export function EditSplit({
           r
             ? {
                 imagePath: r.image_path,
-                model: (r.model_used ?? "sonnet") as ModelKey,
+                sourceLabel: r.model_used ?? "",
                 lines: r.receipt_items.map((i) => ({
                   name: i.name,
                   pricePence: i.price_pence,
