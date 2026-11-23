@@ -35,6 +35,8 @@ export type StatementResult = z.infer<typeof StatementResult>;
 
 export const ReceiptOutput = z.object({
   merchant: z.string().nullable(),
+  date: z.string().nullable().describe("Purchase date as YYYY-MM-DD if printed on the receipt, else null"),
+  category: z.enum(CATEGORIES),
   items: z.array(z.object({ name: z.string(), price: z.number().describe("Line price in GBP after any line discount") })),
   total: z.number().describe("Total paid in GBP"),
 });

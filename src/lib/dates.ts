@@ -14,3 +14,10 @@ export function formatCnDate(isoDate: string): string {
 export function weekdayCn(isoDate: string): string {
   return WEEKDAYS[parse(isoDate).getUTCDay()];
 }
+
+/** Shift an ISO date by whole days (UTC, so no daylight-saving surprises). */
+export function addDays(isoDate: string, days: number): string {
+  const d = parse(isoDate);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

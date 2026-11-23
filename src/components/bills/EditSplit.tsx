@@ -32,7 +32,12 @@ export function EditSplit({
   const [contacts, setContacts] = useState(initialContacts);
   const [receiptPeople, setReceiptPeople] = useState<People | null>(null);
   const now = splitPeople(bill);
-  const target = { id: bill.id, merchant: bill.merchant, amountPence: bill.amount_pence };
+  const target = {
+    id: bill.id,
+    merchant: bill.merchant,
+    amountPence: bill.amount_pence,
+    originalPence: bill.aa_mode === "each" ? (bill.aa_original_pence ?? undefined) : undefined,
+  };
 
   if (receiptPeople) {
     const r = bill.receipt;
@@ -55,9 +60,10 @@ export function EditSplit({
               }
             : undefined
         }
+        initialAa={bill.aa_mode}
         onCancel={onCancel}
-        onDone={async (shares) => {
-          await saveNewSplit(sb, bill.id, shares, true);
+        onDone={async (shares, aa) => {
+          await saveNewSplit(sb, bill.id, shares, true, aa);
           onSaved();
         }}
       />

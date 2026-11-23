@@ -4,10 +4,18 @@ import type { Contact, Transaction } from "../db/types";
 import { normalizeMerchant } from "../dedupe";
 import { historyHint } from "../hints";
 import type { Share } from "../split/equal";
+import { rpcSetSplit, type AaSave } from "./split";
 
 export type DayEntry = { time: string | null; merchant: string; amountPence: number; isCurrent: boolean };
 
-export type ReviewItem = Transaction & { hint: string | null; sameDay: DayEntry[] };
+/** Items already read from a receipt for this bill (e.g. a receipt imported on its own). */
+export type ReviewReceipt = {
+  imagePath: string;
+  model: string | null;
+  lines: { name: string; pricePence: number; includesMe: boolean; contactIds: string[] }[];
+};
+
+export type ReviewItem = Transaction & { hint: string | null; sameDay: DayEntry[]; receipt: ReviewReceipt | null };
 
 /** A past transaction that was already decided, used for the "last time here" hint. */
 export type DecidedRow = {
@@ -22,8 +30,27 @@ type DayRow = Pick<Transaction, "id" | "occurred_on" | "occurred_at_time" | "mer
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
 
+type PendingRow = Transaction & {
+  receipts?:
+    | { image_path: string; model_used: string | null; receipt_items: { name: string; price_pence: number; includes_me: boolean; contact_ids: string[]; position: number }[] }
+    | { image_path: string; model_used: string | null; receipt_items: { name: string; price_pence: number; includes_me: boolean; contact_ids: string[]; position: number }[] }[]
+    | null;
+};
+
+function readReceipt(r: PendingRow["receipts"]): ReviewReceipt | null {
+  const one = Array.isArray(r) ? r[0] : r;
+  if (!one) return null;
+  return {
+    imagePath: one.image_path,
+    model: one.model_used,
+    lines: [...one.receipt_items]
+      .sort((a, b) => a.position - b.position)
+      .map((i) => ({ name: i.name, pricePence: i.price_pence, includesMe: i.includes_me, contactIds: i.contact_ids })),
+  };
+}
+
 export function buildReviewItems(
-  pending: Transaction[],
+  pending: PendingRow[],
   decided: DecidedRow[], // newest first
   dayRows: DayRow[],
   contacts: Contact[],
@@ -52,7 +79,8 @@ export function buildReviewItems(
       .filter((d) => d.occurred_on === tx.occurred_on)
       .sort((a, b) => (a.occurred_at_time ?? "99").localeCompare(b.occurred_at_time ?? "99"))
       .map((d) => ({ time: hhmm(d.occurred_at_time), merchant: d.merchant, amountPence: d.amount_pence, isCurrent: d.id === tx.id }));
-    return { ...tx, hint, sameDay };
+    const { receipts, ...rest } = tx;
+    return { ...rest, hint, sameDay, receipt: readReceipt(receipts) };
   });
 }
 
@@ -60,7 +88,7 @@ export async function loadReviewData(sb: SupabaseClient): Promise<{ items: Revie
   const [pendingRes, decidedRes, contactsRes] = await Promise.all([
     sb
       .from("transactions")
-      .select("*")
+      .select("*, receipts(image_path, model_used, receipt_items(name, price_pence, includes_me, contact_ids, position))")
       .in("status", ["pending", "later"])
       .order("occurred_on", { ascending: false })
       .order("occurred_at_time", { ascending: true, nullsFirst: false }),
@@ -74,7 +102,7 @@ export async function loadReviewData(sb: SupabaseClient): Promise<{ items: Revie
   ]);
   for (const r of [pendingRes, decidedRes, contactsRes]) if (r.error) throw new Error(r.error.message);
 
-  const pending = (pendingRes.data ?? []) as Transaction[];
+  const pending = (pendingRes.data ?? []) as PendingRow[];
   const days = [...new Set(pending.map((p) => p.occurred_on))];
   let dayRows: DayRow[] = [];
   if (days.length) {
@@ -101,11 +129,8 @@ export const STALE_MESSAGE = "这笔已经在别处处理过了，刷新一下";
 export const savePersonal = (sb: SupabaseClient, txId: string) => setStatus(sb, txId, "personal");
 export const saveLater = (sb: SupabaseClient, txId: string) => setStatus(sb, txId, "later");
 
-export async function saveShares(sb: SupabaseClient, txId: string, shares: Share[]) {
-  const { error } = await sb.rpc("set_transaction_split", {
-    p_tx: txId,
-    p_shares: shares.map((s) => ({ contact_id: s.contactId, share_pence: s.sharePence })),
-  });
+export async function saveShares(sb: SupabaseClient, txId: string, shares: Share[], aa?: AaSave | null) {
+  const error = await rpcSetSplit(sb, txId, shares, aa);
   if (error) throw new Error(error.message.includes("stale") ? STALE_MESSAGE : error.message);
 }
 

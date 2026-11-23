@@ -6,7 +6,7 @@ const t = (o: Partial<Transaction>): Transaction => ({
   id: "t", owner_id: "me", import_id: null, occurred_on: "2026-10-22", occurred_at_time: null,
   merchant_raw: "TESCO 3021", merchant: "Tesco", location: null, amount_pence: 2345,
   original_amount: null, original_currency: null, category: "groceries", bank: "monzo",
-  source: "screenshot", status: "pending", ai_hint: null, dedupe_key: "k", created_at: "", ...o,
+  source: "screenshot", status: "pending", ai_hint: null, dedupe_key: "k", aa_mode: null, aa_original_pence: null, created_at: "", ...o,
 });
 const contact = (id: string, name: string): Contact => ({ id, owner_id: "me", name, linked_user_id: null, invite_token: null, created_at: "" });
 

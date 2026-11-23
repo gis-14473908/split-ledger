@@ -166,9 +166,11 @@ export function BillSheet({
             <ul className="card divide-y divide-line">
               {bill.splits.map((s, i) => (
                 <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                  <span className="flex-1">{nameOf(s.contact_id)}{s.contact_id && " 欠你"}</span>
-                  <span className="num">{formatPence(s.share_pence)}</span>
-                  {s.contact_id && (
+                  <span className="flex-1">
+                    {s.contact_id && s.share_pence < 0 ? `你欠 ${nameOf(s.contact_id)}` : `${nameOf(s.contact_id)}${s.contact_id ? " 欠你" : ""}`}
+                  </span>
+                  <span className="num">{formatPence(Math.abs(s.share_pence))}</span>
+                  {s.contact_id && !bill.aa_mode && (
                     <button className="text-xs text-danger" disabled={busy} onClick={() => drop(s.contact_id!)}>
                       {confirmDrop === s.contact_id ? "确认撤销？" : "去掉"}
                     </button>
@@ -176,7 +178,15 @@ export function BillSheet({
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted">
+            {bill.aa_mode && (
+              <p className="text-xs text-muted">
+                {bill.aa_mode === "each"
+                  ? `AA：每人先付了自己的一份，这里只记多吃或少吃的差额${bill.aa_original_pence ? `（整张小票 ${formatPence(bill.aa_original_pence)}）` : ""}。`
+                  : "AA：同学已转的那份记成了「已还」，这里是各自实际该付的钱。"}
+                要改请点「修改分账」。
+              </p>
+            )}
+            <p className={`text-xs text-muted ${bill.aa_mode ? "hidden" : ""}`}>
               {others.length > 1
                 ? "去掉一个人后，剩下的人会一起重新算。"
                 : "去掉最后一个同学，这笔就变成你自己的，TA 不再欠这笔钱。"}
@@ -198,7 +208,7 @@ export function BillSheet({
                 </li>
               ))}
             </ul>
-            {bill.receipt.total_pence !== bill.amount_pence && (
+            {!bill.aa_mode && bill.receipt.total_pence !== bill.amount_pence && (
               <p className="num text-xs text-muted">
                 小票合计 {formatPence(bill.receipt.total_pence)}，银行扣款 {formatPence(bill.amount_pence)}，差额已经算进上面的金额里。
               </p>

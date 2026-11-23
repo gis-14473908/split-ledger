@@ -22,6 +22,8 @@ export const MOCKS = {
   }),
   receipt: () => ({
     merchant: "Tesco Express",
+    date: today(),
+    category: "groceries",
     items: [
       { name: "Semi-skimmed milk", price: 1.45 },
       { name: "Sourdough bread", price: 2.0 },

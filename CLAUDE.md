@@ -3,7 +3,7 @@
 ## 和用户沟通
 - 用户是在英国（曼彻斯特）读书的中国学生，**所有回复都用中文**。代码、注释、提交信息保持英文，和现有代码一致。
 - 用户主要在手机上使用这个 App，也常在手机上和 Claude 对话：回复要简短，给能直接复制的命令，不要让用户去找文件。
-- 用户的开发电脑是 Windows（项目在 `D:\项目\分钱`，PowerShell），另有一台 MacBook。
+- 用户的开发电脑是 Windows（项目在 `D:\03_Projects\split-ledger`，PowerShell），另有一台 MacBook。
 
 ## 这是什么
 一个以手机为主的网页 App，部署在 Vercel，数据存在 Supabase。主要功能：
@@ -45,7 +45,7 @@ npm run test:db        # SQL 测试：需要 Linux 上的 Postgres 16，Windows 
 - Supabase 项目 `hmekrexuepbkcckljdad`（eu-west-2，伦敦）。
 
 ## 数据库
-- 迁移在 `supabase/migrations/0001…0006`，按顺序执行。线上没有用 Supabase CLI 管迁移：新迁移写成下一个编号的 SQL 文件提交进仓库，再让用户把 SQL 粘贴到 https://supabase.com/dashboard/project/hmekrexuepbkcckljdad/sql/new 执行（或者用 Supabase MCP 执行，需要用户确认）。
+- 迁移在 `supabase/migrations/0001…0009`，按顺序执行。线上没有用 Supabase CLI 管迁移：新迁移写成下一个编号的 SQL 文件提交进仓库，再让用户把 SQL 粘贴到 https://supabase.com/dashboard/project/hmekrexuepbkcckljdad/sql/new 执行（或者用 Supabase MCP 执行，需要用户确认）。
 - 所有表都开了 RLS，只能访问自己的行。需要跨表保证一致性的操作写成 `security definer` 函数，通过 `sb.rpc()` 调用：
   `set_transaction_split`、`set_transaction_status`、`reset_transaction`、`create_invite`、`accept_invite`、`invite_info`、`shares_owed_by_me`、`counterpart_settlements`、`contact_balances`、`monthly_spend`、`ai_rate_check`（每人每分钟最多 10 次 AI 调用）、`ai_quota_check`、`ai_quota_add`、`admin_grant_quota`。
   发放额度：在 Supabase SQL 控制台用 service_role 执行 `select admin_grant_quota('<user-uuid>', <付款额 micro-USD>)`（比例已内置，不在界面出现）。
@@ -62,6 +62,11 @@ npm run test:db        # SQL 测试：需要 Linux 上的 Postgres 16，Windows 
 - 按小票分（`src/lib/split/receipt.ts`）：每样商品在它的所有人之间平分；小票合计和银行扣款的差额，用最大余数法按比例分摊，或者全算我的。选的是哪种**没有存下来**。
 - `settlements.amount_pence`：正数 = TA 转给我（我欠 TA 的增加 / TA 欠我的减少），负数 = 我转给 TA。`kind = 'opening'` 是起始欠款，正负号规则相同：「TA 欠我 £X」存成 `-X`。
 - 余额（`src/lib/balance.ts`）：正数表示 TA 欠我。
+
+## 导入草稿和 AA 分账
+- 导入页上传的截图 / 小票 / CSV 先存成 `import_drafts` 草稿（识别结果持久化，确认入账或手动删除才消失）。图片识别由 `POST /api/ai/draft` 触发，用 `after()` 在服务端后台跑（`src/lib/ai/draft-job.ts`），结果写回草稿行；页面轮询。`working` 超过 3 分钟按失败处理，可重试。
+- 小票草稿确认后直接建一笔 pending 账单（金额 = 小票总额）并存好小票明细，商品暂不分配人；在「待处理」选「按小票分」时直接带出这些商品。
+- AA（`transactions.aa_mode`，迁移 0009，逻辑在 `src/lib/split/aa.ts`）：`each` = 每人各刷自己的 1/N，账单金额改成我的那份（原金额存 `aa_original_pence`），同学的 share 是「实际该付 − 已付」，**只有这种模式允许同学的 share 为负**（我欠 TA）；`paid_all` = 我付全款、同学已转 1/N，转账记成 `settlements.transaction_id` 关联的还款。改分账要走 `set_transaction_split(_aa)`，它们会先清掉旧的 AA。
 
 ## 代码结构
 - `src/app/`：页面。`page.tsx` 面板、`bills/` 账单、`import/` 导入、`review/` 待处理（滑卡片）、`contacts/[id]/` 同学详情、`settings/`、`invite/[token]/`、`login`、`signup`、`forgot`、`reset-password`、`auth/callback`。

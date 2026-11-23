@@ -26,6 +26,8 @@ Rules:
 - Expand abbreviations into readable names when obvious ("TS BRIT SEMI MLK" becomes "Semi-skimmed milk"), keeping it short.
 - Do not list subtotals, VAT lines, payment lines or change as items.
 - Basket-wide discounts and service charges that are not tied to one item: leave them out of items; total is the amount actually paid.
+- merchant is the shop or restaurant name; date is the purchase date if printed (YYYY-MM-DD, assume the most recent such date if the year is missing), otherwise null.
+- category must be one of: ${categoryGuide}.
 - If the image is not a receipt, return no items and total 0.`;
 
 export function categorizePrompt(): string {

@@ -52,6 +52,10 @@ export type Transaction = {
   status: TxStatus;
   ai_hint: string | null;
   dedupe_key: string;
+  /** Set when the group already paid in equal parts ("AA"); see migration 0008. */
+  aa_mode: "each" | "paid_all" | null;
+  /** For aa_mode "each": the bill's amount before it was reduced to my equal part. */
+  aa_original_pence: number | null;
   created_at: string;
 };
 

@@ -7,6 +7,8 @@ import { saveReceipt } from "@/lib/data/receipt";
 import type { Contact } from "@/lib/db/types";
 import { compressImage, ImageDecodeError } from "@/lib/image/compress";
 import { formatPence, parsePounds } from "@/lib/money";
+import type { AaSave } from "@/lib/data/split";
+import { aaPlan, type AaMode } from "@/lib/split/aa";
 import type { Share } from "@/lib/split/equal";
 import { receiptSplit, unassignedLines, type ReceiptLine, type Reconcile } from "@/lib/split/receipt";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
@@ -41,16 +43,22 @@ export function ReceiptAssigner({
   people,
   contacts,
   existing,
+  initialAa,
   onCancel,
   onDone,
 }: {
-  target: SplitTarget;
+  target: SplitTarget & {
+    /** For a bill already reduced by an AA split: its amount before the reduction. */
+    originalPence?: number;
+  };
   people: { includeMe: boolean; contactIds: string[] };
   contacts: Contact[];
   /** Start from this receipt instead of a new photo. Owners no longer in `people` are dropped. */
   existing?: ExistingReceipt;
+  /** Reopening a bill that was split as AA. */
+  initialAa?: AaMode | null;
   onCancel: () => void;
-  onDone: (shares: Share[]) => Promise<void>;
+  onDone: (shares: Share[], aa?: AaSave | null) => Promise<void>;
 }) {
   const sb = createBrowserSupabase();
   const input = useRef<HTMLInputElement>(null);
@@ -69,6 +77,8 @@ export function ReceiptAssigner({
       : null,
   );
   const [reconcile, setReconcile] = useState<Reconcile>("proportional");
+  const [aa, setAa] = useState<"none" | AaMode>(initialAa ?? "none");
+  const [aaTotalText, setAaTotalText] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,8 +134,28 @@ export function ReceiptAssigner({
   const itemsTotal = (lines ?? []).reduce((s, l) => s + l.pricePence, 0);
   const missing = lines ? unassignedLines(lines) : [];
   const ready = !!lines && lines.length > 0 && missing.length === 0;
-  const diff = target.amountPence - itemsTotal;
-  const shares = ready ? receiptSplit(lines!, target.amountPence, reconcile) : [];
+  const baseAmount = target.originalPence ?? target.amountPence;
+  const canAa = people.includeMe && people.contactIds.length > 0;
+  const aaOn = canAa && aa !== "none";
+  // The whole receipt is what the group paid together; by default the larger of the bill and the items.
+  const typedTotal = aaTotalText === null ? null : parsePounds(aaTotalText);
+  const groupTotal = typedTotal && typedTotal > 0 ? typedTotal : Math.max(baseAmount, itemsTotal);
+  const diff = (aaOn && aa === "each" ? groupTotal : baseAmount) - itemsTotal;
+  const plan =
+    ready && aaOn
+      ? aaPlan({ lines: lines!, mode: aa as AaMode, receiptTotalPence: groupTotal, billAmountPence: baseAmount, contactIds: people.contactIds, reconcile })
+      : null;
+  const shares = !ready ? [] : plan ? plan.shares : receiptSplit(lines!, baseAmount, reconcile);
+  const aaSummary = plan
+    ? people.contactIds
+        .map((id) => {
+          const share = plan.shares.find((x) => x.contactId === id)?.sharePence ?? 0;
+          const net = aa === "paid_all" ? share - (plan.paid.find((x) => x.contactId === id)?.sharePence ?? 0) : share;
+          const name = contacts.find((c) => c.id === id)?.name ?? "?";
+          return net > 0 ? `${name} 欠你 ${formatPence(net)}` : net < 0 ? `你欠 ${name} ${formatPence(-net)}` : `${name} 两清`;
+        })
+        .join("　")
+    : "";
   const nameOf = (id: string | null) => owners.find((o) => o.id === id)?.name ?? "?";
 
   async function confirm() {
@@ -140,7 +170,7 @@ export function ReceiptAssigner({
         lines: lines!,
         names: Object.fromEntries(lines!.map((l) => [l.id, l.name])),
       });
-      await onDone(shares);
+      await onDone(shares, plan ? { mode: aa as AaMode, paid: plan.paid, amountPence: plan.amountPence } : null);
     } catch (e) {
       setError(`保存失败：${(e as Error).message}`);
       setBusy(null);
@@ -241,6 +271,51 @@ export function ReceiptAssigner({
               + 手动加一行
             </button>
 
+            {canAa && (
+              <div className="card flex flex-col gap-2 p-3 text-sm">
+                <p className="font-semibold">已经 AA 付过了吗？</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([["none", "没有"], ["each", "各付各的"], ["paid_all", "我付了全款"]] as const).map(([k, label]) => (
+                    <button
+                      key={k}
+                      aria-pressed={aa === k}
+                      onClick={() => setAa(k)}
+                      className={`rounded-xl px-2 py-2 ${aa === k ? "border-2 border-accent bg-accent-soft text-accent" : "border border-line"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {aa === "each" && (
+                  <>
+                    <p className="text-xs text-muted">
+                      每人在店里刷了自己的 1/{people.contactIds.length + 1}。这笔账会改成你的那一份，只记每个人多吃或少吃的差额。
+                    </p>
+                    <label className="flex items-center justify-between gap-3">
+                      <span>整张小票总额</span>
+                      <input
+                        className="field num w-28 py-1.5 text-right"
+                        inputMode="decimal"
+                        value={aaTotalText ?? (groupTotal / 100).toFixed(2)}
+                        onChange={(e) => setAaTotalText(e.target.value)}
+                        aria-label="整张小票总额"
+                      />
+                    </label>
+                    {plan && (
+                      <p className="num text-xs text-muted">
+                        每人先付 {formatPence(plan.amountPence)}，这笔账会从 {formatPence(baseAmount)} 改成 {formatPence(plan.amountPence)}。
+                      </p>
+                    )}
+                  </>
+                )}
+                {aa === "paid_all" && (
+                  <p className="text-xs text-muted">
+                    你付了 {formatPence(baseAmount)}，同学已经各转了自己的 1/{people.contactIds.length + 1}。转的钱会记成「已还」，账上只剩差额。
+                  </p>
+                )}
+              </div>
+            )}
+
             {diff !== 0 && (
               <div className="card flex flex-col gap-2 p-3 text-sm">
                 <p className="num">
@@ -268,9 +343,11 @@ export function ReceiptAssigner({
         <div className="fixed inset-x-0 bottom-0 border-t border-line bg-surface" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           <div className="mx-auto flex max-w-[480px] flex-col gap-2 px-4 py-3">
             <p className="num text-[13px] text-muted">
-              {ready
-                ? shares.map((s) => `${nameOf(s.contactId)} ${formatPence(s.sharePence)}`).join("　")
-                : `还有 ${missing.length} 样没选是谁的`}
+              {!ready
+                ? `还有 ${missing.length} 样没选是谁的`
+                : plan
+                  ? aaSummary
+                  : shares.map((s) => `${nameOf(s.contactId)} ${formatPence(s.sharePence)}`).join("　")}
             </p>
             <button className="btn btn-primary" disabled={!ready || !!busy} onClick={confirm}>
               {busy ?? "确认分账"}

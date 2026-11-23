@@ -20,6 +20,7 @@ import {
 } from "@/lib/data/review";
 import type { Contact } from "@/lib/db/types";
 import { decide, initQueue, jump, undo, type Choice, type QueueState } from "@/lib/review/queue";
+import type { AaSave } from "@/lib/data/split";
 import type { Share } from "@/lib/split/equal";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
@@ -86,9 +87,9 @@ export default function ReviewPage() {
     setSharing(null);
   }
 
-  async function onReceiptDone(shares: Share[]) {
+  async function onReceiptDone(shares: Share[], aa?: AaSave | null) {
     if (!receiptFor) return;
-    await saveShares(sb, receiptFor.item.id, shares);
+    await saveShares(sb, receiptFor.item.id, shares, aa);
     record(receiptFor.item.id, "shared", "已按小票分账");
     setReceiptFor(null);
   }
@@ -188,6 +189,7 @@ export default function ReviewPage() {
         <SplitSheet
           target={{ id: sharing.id, merchant: sharing.merchant, amountPence: sharing.amount_pence }}
           contacts={contacts}
+          initial={sharing.receipt ? { includeMe: true, contactIds: [], mode: "receipt", hasReceipt: true } : undefined}
           onCreateContact={onCreateContact}
           onCancel={() => setSharing(null)}
           onEqual={onEqual}
@@ -203,6 +205,15 @@ export default function ReviewPage() {
           target={{ id: receiptFor.item.id, merchant: receiptFor.item.merchant, amountPence: receiptFor.item.amount_pence }}
           people={receiptFor.people}
           contacts={contacts}
+          existing={
+            receiptFor.item.receipt
+              ? {
+                  imagePath: receiptFor.item.receipt.imagePath,
+                  sourceLabel: receiptFor.item.receipt.model ?? "",
+                  lines: receiptFor.item.receipt.lines,
+                }
+              : undefined
+          }
           onCancel={() => setReceiptFor(null)}
           onDone={onReceiptDone}
         />

@@ -4,6 +4,7 @@ import type { Contact, Transaction, TxStatus } from "../db/types";
 import { dedupeKey } from "../dedupe";
 import { formatPence } from "../money";
 import type { Share } from "../split/equal";
+import { rpcSetSplit, type AaSave } from "./split";
 
 export type ReceiptItemRow = { name: string; price_pence: number; includes_me: boolean; contact_ids: string[]; position: number };
 export type BillReceipt = { id: string; image_path: string; total_pence: number; model_used: string | null; receipt_items: ReceiptItemRow[] };
@@ -159,11 +160,8 @@ export async function addManualBill(sb: SupabaseClient, b: ManualBill) {
  * Replace a split with new shares for everyone at once. Without a receipt (an even split),
  * any receipt saved earlier is dropped so the item list never disagrees with the shares.
  */
-export async function saveNewSplit(sb: SupabaseClient, billId: string, shares: Share[], keepReceipt: boolean) {
-  const { error } = await sb.rpc("set_transaction_split", {
-    p_tx: billId,
-    p_shares: shares.map((s) => ({ contact_id: s.contactId, share_pence: s.sharePence })),
-  });
+export async function saveNewSplit(sb: SupabaseClient, billId: string, shares: Share[], keepReceipt: boolean, aa?: AaSave | null) {
+  const error = await rpcSetSplit(sb, billId, shares, aa);
   if (error) throw new Error(error.message);
   if (keepReceipt) return;
   const { error: e2 } = await sb.from("receipts").delete().eq("transaction_id", billId);
