@@ -134,7 +134,7 @@ export function SwipeDeck({
 function Stamp({ className, opacity, children }: { className: string; opacity: number; children: React.ReactNode }) {
   return (
     <span
-      className={`font-display pointer-events-none absolute z-10 rounded-lg border-[3px] border-current bg-surface px-3 py-0.5 text-xl font-extrabold ${className}`}
+      className={`font-display pointer-events-none absolute z-10 rounded-lg border-[3px] border-current bg-surface px-3 py-0.5 text-xl font-semibold ${className}`}
       style={{ opacity }}
     >
       {children}
@@ -159,7 +159,7 @@ function ActionButton({
       : `size-12 border-line bg-surface ${tone === "later" ? "text-later" : "text-ink"}`;
   return (
     <button type="button" onClick={onClick} className="flex flex-col items-center gap-1 text-[13px] text-muted">
-      <span className={`grid place-items-center rounded-full border font-bold shadow-[var(--shadow)] ${circle}`}>{children}</span>
+      <span className={`grid place-items-center rounded-full border font-semibold shadow-[var(--shadow)] ${circle}`}>{children}</span>
       {label}
     </button>
   );

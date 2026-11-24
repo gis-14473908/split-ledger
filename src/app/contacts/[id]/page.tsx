@@ -91,8 +91,8 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
     <main className="mx-auto flex max-w-[480px] flex-col gap-5 px-4 pt-5">
       <Link href="/" className="text-sm text-muted">‹ 面板</Link>
       <header className="flex flex-col items-center gap-1 text-center">
-        <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-2xl font-bold text-accent">{contact.name.slice(0, 1)}</span>
-        <h1 className="font-display text-2xl font-extrabold">{contact.name}</h1>
+        <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">{contact.name.slice(0, 1)}</span>
+        <h1 className="font-display text-2xl font-semibold">{contact.name}</h1>
         <p className="text-xs text-muted">{contact.linked_user_id ? "已关联 TA 的账号" : "还没关联账号"}</p>
         <p className={`num mt-2 text-4xl ${balance > 0 ? "text-accent" : balance < 0 ? "text-later" : "text-muted"}`}>
           {balance === 0 ? "两清" : formatPence(Math.abs(balance))}
@@ -141,7 +141,7 @@ export default function ContactPage({ params }: { params: Promise<{ id: string }
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm tracking-widest text-muted">明细</h2>
+        <h2 className="text-sm text-muted">明细</h2>
         {entries.length === 0 ? (
           <p className="card p-4 text-sm text-muted">还没有记录</p>
         ) : (

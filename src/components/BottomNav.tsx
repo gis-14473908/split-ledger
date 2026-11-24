@@ -50,7 +50,7 @@ export function BottomNav() {
             <li key={item.href} className="flex-1">
               <Link
                 href={item.href}
-                className={`relative flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] transition-colors ${active ? "font-bold text-accent" : "text-muted"}`}
+                className={`relative flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] transition-colors ${active ? "font-semibold text-accent" : "text-muted"}`}
               >
                 <span className={`grid h-7 w-12 place-items-center rounded-full transition-colors ${active ? "bg-accent-soft" : ""}`}>
                   <item.Icon size={20} />

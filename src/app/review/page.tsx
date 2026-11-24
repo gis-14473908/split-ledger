@@ -144,7 +144,7 @@ export default function ReviewPage() {
   return (
     <main className="mx-auto flex min-h-[calc(100dvh-6rem)] max-w-[480px] flex-col">
       <header className="flex items-center justify-between px-4 pt-5">
-        <h1 className="text-lg font-bold">待处理账单</h1>
+        <h1 className="text-lg font-semibold">待处理账单</h1>
         <span className="num text-[13px] text-muted">{items ? (left ? `剩 ${left} / ${total} 笔` : "全部完成") : ""}</span>
         <button className="text-sm text-accent disabled:text-line" disabled={q.history.length === 0} onClick={onUndo}>
           撤销
@@ -156,7 +156,7 @@ export default function ReviewPage() {
 
       {items && total === 0 && (
         <div className="m-auto flex flex-col items-center gap-3 p-8 text-center">
-          <p className="font-display text-2xl font-extrabold">没有待处理的账单</p>
+          <p className="font-display text-2xl font-semibold">没有待处理的账单</p>
           <p className="text-muted">先导入一些银行截图吧。</p>
           <Link href="/import" className="btn btn-primary">去导入</Link>
         </div>
@@ -169,7 +169,7 @@ export default function ReviewPage() {
             <SwipeDeck stack={stack} onAction={onAction} onCategory={onCategory} />
           ) : (
             <div className="m-auto flex flex-col items-center gap-3 p-8 text-center">
-              <p className="font-display text-2xl font-extrabold">都处理完了</p>
+              <p className="font-display text-2xl font-semibold">都处理完了</p>
               <p className="text-muted">
                 自己的 {counts.personal ?? 0} 笔 · 一起的 {counts.shared ?? 0} 笔 · 稍后 {counts.later ?? 0} 笔
               </p>

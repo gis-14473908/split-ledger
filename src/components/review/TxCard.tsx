@@ -21,7 +21,7 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="num rounded-md bg-accent-soft px-2 py-0.5 text-xs tracking-wider text-accent uppercase">
+        <span className="num rounded-md bg-accent-soft px-2 py-0.5 text-xs text-accent">
           {BANK_LABEL[item.bank]}
         </span>
         <span className="num text-[13px] text-muted">
@@ -31,7 +31,7 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
       </div>
 
       <div>
-        <p className="font-display text-2xl leading-tight font-bold break-words">{item.merchant}</p>
+        <p className="font-display text-2xl leading-tight font-semibold break-words">{item.merchant}</p>
         {item.location && <p className="mt-0.5 text-[13px] text-muted">{item.location}</p>}
       </div>
 
@@ -89,7 +89,7 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
       {item.sameDay.length > 1 && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-2.5">
           <div className="flex items-baseline justify-between">
-            <p className="text-xs tracking-widest text-muted">当天的消费（{item.sameDay.length} 笔）</p>
+            <p className="text-xs text-muted">当天的消费（{item.sameDay.length} 笔）</p>
             {(day.hiddenBefore > 0 || day.hiddenAfter > 0) && (
               <button type="button" className="text-xs text-accent" onPointerDown={stop} onClick={() => setShowDay(true)}>
                 查看全部
@@ -113,7 +113,7 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
               style={{ paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}
             >
               <div className="mx-auto h-1.5 w-10 rounded-full bg-line" />
-              <h2 className="font-bold">
+              <h2 className="font-semibold">
                 {weekdayCn(item.occurred_on)} {formatCnDate(item.occurred_on)} · {item.sameDay.length} 笔
               </h2>
               {item.sameDay.map((d, i) => <DayRow key={i} d={d} />)}
@@ -128,7 +128,7 @@ export function TxCard({ item, onCategory }: { item: ReviewItem; onCategory?: (c
 
 function DayRow({ d }: { d: { time: string | null; merchant: string; amountPence: number; isCurrent: boolean } }) {
   return (
-    <div className={`grid grid-cols-[44px_1fr_auto] gap-2 text-[13px] ${d.isCurrent ? "font-bold text-ink" : "text-muted"}`}>
+    <div className={`grid grid-cols-[44px_1fr_auto] gap-2 text-[13px] ${d.isCurrent ? "font-semibold text-ink" : "text-muted"}`}>
       <span className="num text-xs">{d.time ?? "—"}</span>
       <span className="truncate">
         {d.isCurrent && <span className="text-accent">▸ </span>}

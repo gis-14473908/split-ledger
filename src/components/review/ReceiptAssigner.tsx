@@ -182,7 +182,7 @@ export function ReceiptAssigner({
       <div className="mx-auto flex max-w-[480px] flex-col gap-4 px-4 pt-5" style={{ paddingBottom: "calc(120px + env(safe-area-inset-bottom, 0px))" }}>
         <header className="flex items-center justify-between">
           <button className="text-sm text-muted" onClick={onCancel}>取消</button>
-          <h2 className="font-bold">按小票分</h2>
+          <h2 className="font-semibold">按小票分</h2>
           <span className="w-8" />
         </header>
         <p className="num text-center text-[13px] text-muted">
@@ -193,7 +193,7 @@ export function ReceiptAssigner({
 
         {!lines && (
           <button className="card flex flex-col items-center gap-2 p-8" onClick={() => input.current?.click()} disabled={!!busy}>
-            <span className="text-lg font-bold">{busy ?? "拍小票或从相册选"}</span>
+            <span className="text-lg font-semibold">{busy ?? "拍小票或从相册选"}</span>
             <span className="text-sm text-muted">AI 会列出上面的每一样商品</span>
           </button>
         )}

@@ -60,7 +60,7 @@ export default function Dashboard() {
       {onboarding && (
         <section className="card flex flex-col gap-3 border-accent p-4">
           <div>
-            <h2 className="font-bold">先把同学和以前的旧账加进来</h2>
+            <h2 className="font-semibold">先把同学和以前的旧账加进来</h2>
             <p className="text-sm text-muted">常一起花钱的同学先加上；如果之前就有没算清的账，顺便填上，面板会从这个数开始算。</p>
           </div>
           <AddContactForm
@@ -79,13 +79,13 @@ export default function Dashboard() {
           <span>
             还有 <b className="num">{pending}</b> 笔待确认
           </span>
-          <span className="font-bold text-accent">去处理 ›</span>
+          <span className="font-semibold text-accent">去处理 ›</span>
         </Link>
       )}
 
       <section className="flex flex-col gap-2">
         <h2 className="flex items-baseline justify-between text-sm text-muted">
-          <span className="tracking-widest">每个人</span>
+          <span className="">每个人</span>
           {rows && rows.length > 0 && <span className="text-xs">点名字看明细、改还款</span>}
         </h2>
         {error && <p className="card p-4 text-sm text-danger">加载失败：{error}</p>}

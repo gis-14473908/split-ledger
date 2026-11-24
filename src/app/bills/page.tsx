@@ -56,7 +56,7 @@ export default function BillsPage({ searchParams }: { searchParams: Promise<{ tx
   return (
     <main className="mx-auto flex max-w-[480px] flex-col gap-4 px-4 pt-6">
       <header className="flex items-baseline justify-between">
-        <h1 className="font-display text-2xl font-extrabold">账单</h1>
+        <h1 className="font-display text-2xl font-semibold">账单</h1>
         <button className="text-sm text-accent" onClick={() => setAdding((v) => !v)}>{adding ? "收起" : "+ 手动记一笔"}</button>
       </header>
 
@@ -94,7 +94,7 @@ export default function BillsPage({ searchParams }: { searchParams: Promise<{ tx
       {groupByMonth(shown).map((g) => (
         <section key={g.month} className="flex flex-col gap-2">
           <h2 className="flex justify-between text-sm text-muted">
-            <span className="tracking-widest">{g.label}</span>
+            <span className="">{g.label}</span>
             {g.spentPence > 0 && <span className="num">支出 {formatPence(g.spentPence)}</span>}
           </h2>
           <ul className="card divide-y divide-line">

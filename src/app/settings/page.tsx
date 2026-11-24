@@ -100,7 +100,7 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto flex max-w-[480px] flex-col gap-5 px-4 pt-6">
-      <h1 className="font-display text-2xl font-extrabold">设置</h1>
+      <h1 className="font-display text-2xl font-semibold">设置</h1>
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
       {saved && <p className="text-sm text-ok" role="status">{saved}</p>}
 
@@ -183,7 +183,7 @@ export default function SettingsPage() {
 
       <section className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-sm tracking-widest text-muted">联系人</h2>
+          <h2 className="text-sm text-muted">联系人</h2>
           <button className="text-sm text-accent" onClick={() => setAdding((v) => !v)}>{adding ? "收起" : "+ 添加联系人"}</button>
         </div>
         {adding && (

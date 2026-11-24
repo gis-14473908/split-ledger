@@ -83,14 +83,14 @@ export function SplitSheet({
       >
         <div className="mx-auto h-1.5 w-10 rounded-full bg-line" />
         <div>
-          <h2 className="text-lg font-bold">{initial ? "修改分账" : "和谁一起？"}</h2>
+          <h2 className="text-lg font-semibold">{initial ? "修改分账" : "和谁一起？"}</h2>
           <p className="num text-[13px] text-muted">
             {target.merchant} · {formatPence(target.amountPence)}
           </p>
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs tracking-widest text-muted">选人（可多选）</p>
+          <p className="mb-1.5 text-xs text-muted">选人（可多选）</p>
           <div className="flex flex-wrap gap-2">
             <Chip on={includeMe} onClick={() => setIncludeMe((v) => !v)}>我</Chip>
             {contacts.map((c) => (
@@ -126,7 +126,7 @@ export function SplitSheet({
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs tracking-widest text-muted">怎么分</p>
+          <p className="mb-1.5 text-xs text-muted">怎么分</p>
           <div className="grid grid-cols-2 gap-2">
             <ModeButton on={mode === "even"} onClick={() => setMode("even")} title="平均分" sub="总额按人头平摊" />
             <ModeButton on={mode === "receipt"} onClick={() => setMode("receipt")} title="按小票分" sub="拍小票，逐个商品选归属" />

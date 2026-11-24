@@ -33,7 +33,7 @@ export function MonthlySpend() {
     <section className="card flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <button className="px-2 text-xl text-muted" onClick={() => setMonth((x) => shift(x, -1))} aria-label="上个月">‹</button>
-        <h2 className="font-bold">{y}年{Number(m)}月 我的支出</h2>
+        <h2 className="font-semibold">{y}年{Number(m)}月 我的支出</h2>
         <button
           className="px-2 text-xl text-muted disabled:opacity-30"
           onClick={() => setMonth((x) => shift(x, 1))}

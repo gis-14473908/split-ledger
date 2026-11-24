@@ -147,7 +147,7 @@ export default function ImportPage() {
   return (
     <main className="mx-auto flex max-w-[480px] flex-col gap-5 px-4 pt-6">
       <header>
-        <h1 className="font-display text-2xl font-extrabold">导入账单</h1>
+        <h1 className="font-display text-2xl font-semibold">导入账单</h1>
         <p className="mt-1 text-sm text-muted">上传后在后台识别，可以随时离开；确认之前结果都会保留。</p>
         <label className="mt-3 flex items-center gap-2 text-sm text-muted">
           识别用
@@ -188,7 +188,7 @@ export default function ImportPage() {
 
       {drafts && drafts.length > 0 && (
         <section className="flex flex-col gap-3">
-          <h2 className="font-bold">
+          <h2 className="font-semibold">
             识别结果 <span className="num text-sm font-normal text-muted">{drafts.length}</span>
           </h2>
           <ul className="flex flex-col gap-3">
@@ -218,7 +218,7 @@ function Tile({ icon, title, hint, onClick, disabled }: { icon: React.ReactNode;
       disabled={disabled}
     >
       <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent">{icon}</span>
-      <span className="font-bold">{title}</span>
+      <span className="font-semibold">{title}</span>
       <span className="text-xs text-muted">{hint}</span>
     </button>
   );

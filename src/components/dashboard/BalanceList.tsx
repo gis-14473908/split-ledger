@@ -15,7 +15,7 @@ export function BalanceList({ rows }: { rows: BalanceRow[] }) {
       {rows.map(({ contact, pence }) => (
         <li key={contact.id}>
           <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3 px-4 py-3.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft font-bold text-accent">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent">
               {contact.name.slice(0, 1)}
             </span>
             <span className="min-w-0 flex-1 truncate font-semibold">{contact.name}</span>
